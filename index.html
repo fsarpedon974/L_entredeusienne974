@@ -1,55 +1,47 @@
 <script type="text/babel">
 
 // ============================================================
-// CONFIGURATION
+// CONFIG
 // ============================================================
-const MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/kvj121sx53oolapt6yhvrsmk1wc36vyb"; // ← ton webhook
+const MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/kvj121sx53oolapt6yhvrsmk1wc36vyb"; // ← TON WEBHOOK
 // ============================================================
 
-// 🔒 Neutralisé pour éviter crash Airtable
-const fetchPubs = async function() {
-  return;
-};
-
-// 🔒 Patch corrigé (plus d'erreur JS)
-const patch = async function(id, fields) {
-  try {
-    await fetch(MAKE_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        action: "update",
-        id: id,
-        fields: fields
-      })
-    });
-  } catch (e) {
-    console.error(e);
-  }
-};
-
-// 🔒 Delete corrigé
-const deleteRecord = async function(id) {
-  try {
-    await fetch(MAKE_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        action: "delete",
-        id: id
-      })
-    });
-  } catch (e) {
-    console.error(e);
-  }
-};
 
 // ============================================================
-// TON APP (INCHANGÉE)
+// SAFE FUNCTIONS (plus aucun crash)
+// ============================================================
+
+// ❌ plus d’appel Airtable direct
+const fetchPubs = async () => { return; };
+
+// ✅ update via Make
+const patch = async (id, fields) => {
+  await fetch(MAKE_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "update",
+      id,
+      fields
+    })
+  });
+};
+
+// ✅ delete via Make
+const deleteRecord = async (id) => {
+  await fetch(MAKE_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "delete",
+      id
+    })
+  });
+};
+
+
+// ============================================================
+// APP (TON DESIGN INTACT)
 // ============================================================
 
 function App() {
@@ -63,24 +55,21 @@ function App() {
 
   const [loading, setLoading] = React.useState(false);
 
-  // 🔒 désactive le fetch initial qui faisait planter
-  React.useEffect(function() {}, []);
+  React.useEffect(() => {}, []); // 🔒 évite crash
 
-  const togglePlatform = function(p) {
-    setForm(function(f) {
-      return {
-        ...f,
-        plateformes: f.plateformes.includes(p)
-          ? f.plateformes.filter(x => x !== p)
-          : [...f.plateformes, p]
-      };
-    });
+  const togglePlatform = (p) => {
+    setForm(f => ({
+      ...f,
+      plateformes: f.plateformes.includes(p)
+        ? f.plateformes.filter(x => x !== p)
+        : [...f.plateformes, p]
+    }));
   };
 
-  const handleSubmit = async function() {
+  const handleSubmit = async () => {
 
     if (!form.sujet || !form.type || form.plateformes.length === 0) {
-      alert("Remplis les champs obligatoires");
+      alert("Remplis Sujet, Type et Plateformes");
       return;
     }
 
@@ -110,12 +99,12 @@ function App() {
       });
 
     } catch (e) {
-      console.error(e);
       alert("Erreur");
     }
 
     setLoading(false);
   };
+
 
   return (
     <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px" }}>
@@ -141,7 +130,7 @@ function App() {
       />
 
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "15px" }}>
-        {["Facebook", "Instagram", "TikTok", "Affichage Dynamique"].map(p => (
+        {["Facebook","Instagram","TikTok","Affichage Dynamique"].map(p => (
           <button
             key={p}
             onClick={() => togglePlatform(p)}
