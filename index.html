@@ -1,164 +1,505 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>L'Entredeusienne — Gestion publications</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F0700; font-family: Georgia, serif; color: #fff; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,224,0,0.2); border-radius: 2px; }
+    input, textarea, select {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,224,0,0.15);
+      border-radius: 9px; color: #fff;
+      font-family: Georgia, serif; font-size: 13px;
+      padding: 10px 12px; width: 100%; outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: rgba(255,224,0,0.4); }
+    select option { background: #1a0800; color: #fff; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(0.4); }
+    label { color: rgba(255,224,0,0.6); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 5px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
 <script type="text/babel">
 
 // ============================================================
-// CONFIG
+// CONFIGURATION
 // ============================================================
-const MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/kvj121sx53oolapt6yhvrsmk1wc36vyb"; // ← TON WEBHOOK
-// ============================================================
-
-
-// ============================================================
-// SAFE FUNCTIONS (plus aucun crash)
+// Remplace cette URL par ton webhook Make réel.
+const MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/kvj121sx53oolapt6yhvrsmk1wc36vyb";
 // ============================================================
 
-// ❌ plus d’appel Airtable direct
-const fetchPubs = async () => { return; };
+const TABLE_NAME = "Publications";
 
-// ✅ update via Make
-const patch = async (id, fields) => {
-  await fetch(MAKE_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "update",
-      id,
-      fields
-    })
-  });
-};
+const STATUT_NOUVEAU = "🆕 Nouveau";
+const STATUT_ATTENTE = "⏳ En attente validation";
+const STATUT_VALIDE  = "📤 Validé — À publier";
 
-// ✅ delete via Make
-const deleteRecord = async (id) => {
-  await fetch(MAKE_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "delete",
-      id
-    })
-  });
-};
+// Valeurs exactes Airtable
+const PLATFORMS_OPTIONS = ["Facebook", "Instagram", "TikTok", "Affichage Dynamique"];
+const PLATFORMS_ICONS   = { "Facebook": "📘", "Instagram": "📸", "TikTok": "🎵", "Affichage Dynamique": "📺" };
 
+const TYPES_CONTENU = [
+  "Produit du jour",
+  "Formule midi",
+  "Événement",
+  "Info pratique",
+  "Spécialité",
+  "Promotion",
+  "🤖 Fallback engagement"
+];
 
-// ============================================================
-// APP (TON DESIGN INTACT)
-// ============================================================
+const INTENTIONS = [
+  "Donner faim",
+  "Faire venir maintenant",
+  "Mettre en avant une offre",
+  "Montrer ambiance",
+  "Informer simplement"
+];
 
-function App() {
+const VISUAL_PLATFORMS = [
+  { key: "Visuel Facebook (URL)",        label: "Facebook",          icon: "📘", ratio: "1:1"  },
+  { key: "Visuel Instagram (URL)",       label: "Instagram",         icon: "📸", ratio: "9:16" },
+  { key: "Visuel TikTok (URL)",          label: "TikTok",            icon: "🎵", ratio: "9:16" },
+  { key: "Visuel TV (URL)",              label: "Affichage Dynamique", icon: "📺", ratio: "16:9" },
+];
 
-  const [form, setForm] = React.useState({
-    sujet: "",
-    type: "",
-    details: "",
-    plateformes: []
-  });
+function formatDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+}
 
-  const [loading, setLoading] = React.useState(false);
-
-  React.useEffect(() => {}, []); // 🔒 évite crash
-
-  const togglePlatform = (p) => {
-    setForm(f => ({
-      ...f,
-      plateformes: f.plateformes.includes(p)
-        ? f.plateformes.filter(x => x !== p)
-        : [...f.plateformes, p]
-    }));
-  };
-
-  const handleSubmit = async () => {
-
-    if (!form.sujet || !form.type || form.plateformes.length === 0) {
-      alert("Remplis Sujet, Type et Plateformes");
-      return;
-    }
-
-    if (loading) return;
-    setLoading(true);
-
-    try {
-
-      await fetch(MAKE_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          action: "create",
-          ...form
-        })
-      });
-
-      alert("✅ Envoyé");
-
-      setForm({
-        sujet: "",
-        type: "",
-        details: "",
-        plateformes: []
-      });
-
-    } catch (e) {
-      alert("Erreur");
-    }
-
-    setLoading(false);
-  };
-
-
+function VisualCard({ platform, url, active }) {
+  const parts = platform.ratio.split(":");
+  const w = parseInt(parts[0]), h = parseInt(parts[1]);
   return (
-    <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px" }}>
-
-      <h2 style={{ color: "#FFE000" }}>Créer une publication</h2>
-
-      <input
-        placeholder="Sujet du post"
-        value={form.sujet}
-        onChange={e => setForm({ ...form, sujet: e.target.value })}
-      />
-
-      <input
-        placeholder="Type de contenu"
-        value={form.type}
-        onChange={e => setForm({ ...form, type: e.target.value })}
-      />
-
-      <textarea
-        placeholder="Détails supplémentaires"
-        value={form.details}
-        onChange={e => setForm({ ...form, details: e.target.value })}
-      />
-
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "15px" }}>
-        {["Facebook","Instagram","TikTok","Affichage Dynamique"].map(p => (
-          <button
-            key={p}
-            onClick={() => togglePlatform(p)}
-            style={{
-              padding: "8px 14px",
-              borderRadius: "20px",
-              border: form.plateformes.includes(p)
-                ? "1px solid #FFE000"
-                : "1px solid rgba(255,224,0,0.2)",
-              background: form.plateformes.includes(p)
-                ? "rgba(255,224,0,0.15)"
-                : "transparent",
-              color: "#fff"
-            }}
-          >
-            {p}
-          </button>
-        ))}
+    <div style={{ opacity: active ? 1 : 0.4, transition: "opacity 0.3s", flex: platform.ratio === "16:9" ? "2 1 200px" : "1 1 90px", maxWidth: platform.ratio === "16:9" ? "320px" : platform.ratio === "1:1" ? "190px" : "115px" }}>
+      <div style={{ marginBottom: "6px", display: "flex", alignItems: "center", gap: "5px", color: active ? "#FFE000" : "rgba(255,224,0,0.35)", fontSize: "11px", fontWeight: "600", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        <span>{platform.icon}</span><span>{platform.label}</span>
+        <span style={{ opacity: 0.5, fontWeight: "400", fontSize: "9px" }}>{platform.ratio}</span>
       </div>
-
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "..." : "Envoyer"}
-      </button>
-
+      <div style={{ position: "relative", paddingBottom: (h/w*100) + "%" }}>
+        <div style={{ position: "absolute", inset: 0 }}>
+          {url ? (
+            <img src={url} alt={platform.label} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "10px", border: active ? "2px solid rgba(255,224,0,0.6)" : "1px solid rgba(255,255,255,0.1)" }} />
+          ) : (
+            <div style={{ width: "100%", height: "100%", borderRadius: "10px", background: "rgba(255,255,255,0.03)", border: "1.5px dashed rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: "10px", gap: "4px" }}>
+              <span style={{ fontSize: "20px" }}>🖼️</span><span>Non généré</span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+function PubCard({ pub, onOpen }) {
+  const f = pub.fields;
+  const platforms = f["Plateformes cibles"] || [];
+  const previewUrl = f["Visuel Facebook (URL)"] || f["Visuel Instagram (URL)"] || f["Visuel TV (URL)"];
+  const [hover, setHover] = React.useState(false);
+  return (
+    <div onClick={() => onOpen(pub)} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ background: hover ? "rgba(255,224,0,0.06)" : "rgba(255,255,255,0.03)", border: "1px solid " + (hover ? "rgba(255,224,0,0.25)" : "rgba(255,224,0,0.1)"), borderRadius: "13px", padding: "13px 15px", cursor: "pointer", display: "flex", gap: "13px", alignItems: "center", transition: "all 0.2s" }}>
+      <div style={{ width: "58px", height: "58px", borderRadius: "9px", flexShrink: 0, background: "rgba(255,224,0,0.07)", border: "1px solid rgba(255,224,0,0.15)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {previewUrl ? <img src={previewUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "20px" }}>🖼️</span>}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "14px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f["Sujet du post"] || "Sans titre"}</div>
+        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "4px" }}>
+          {f["Type de contenu"] && <span style={{ background: "rgba(255,224,0,0.1)", color: "#FFE000", borderRadius: "20px", padding: "1px 7px", fontSize: "10px" }}>{f["Type de contenu"]}</span>}
+          {platforms.map(function(p) { return <span key={p} style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", borderRadius: "20px", padding: "1px 7px", fontSize: "10px" }}>{p}</span>; })}
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.28)", fontSize: "11px" }}>
+          {formatDate(f["Date de création"])}
+          {f["Mode"] === "fallback" && <span style={{ marginLeft: "8px", color: "rgba(255,224,0,0.32)" }}>• Auto</span>}
+        </div>
+      </div>
+      <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "18px" }}>›</div>
+    </div>
+  );
+}
 
+function NewPublicationForm({ onClose, onSuccess, showToast }) {
+  const [form, setForm] = React.useState({ sujet: "", type: "", details: "", intention: "", plateformes: [], date: "", bypass: false, photo: null });
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const togglePlatform = function(p) {
+    setForm(function(f) {
+      return Object.assign({}, f, { plateformes: f.plateformes.includes(p) ? f.plateformes.filter(function(x) { return x !== p; }) : f.plateformes.concat([p]) });
+    });
+  };
+
+  const handleSubmit = async function() {
+
+if (!form.sujet || !form.type || form.plateformes.length === 0) {
+  showToast("Remplis au minimum : Sujet, Type et Plateformes", "err");
+  return;
+}
+
+if (submitting) return;
+
+setSubmitting(true);
+
+try {
+
+  const cleanPlatforms = form.plateformes.map(p => p.trim());
+
+  const fields = {
+    "Sujet du post": form.sujet,
+    "Type de contenu": form.type,
+    "Plateformes cibles": cleanPlatforms,
+    "Statut": STATUT_NOUVEAU,
+    "Mode": "normal",
+    "Bypass visuel": form.bypass
+  };
+
+  if (form.details) fields["Détails supplémentaires"] = form.details;
+  if (form.intention) fields["Intention"] = form.intention;
+  if (form.date) fields["Date de publication"] = form.date;
+
+  const res = await fetch(MAKE_WEBHOOK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ action: "create", fields: fields })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text);
+  }
+
+  const data = await res.json();
+
+  console.log("OK:", data);
+
+  showToast("✅ Publication envoyée !");
+  onSuccess();
+
+} catch (e) {
+  console.error(e);
+  showToast("Erreur : " + e.message, "err");
+}
+
+setSubmitting(false);
+};
+ 
+return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div>
+        <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>Nouvelle publication</div>
+        <h1 style={{ color: "#FFE000", fontSize: "20px", fontWeight: "700" }}>Créer un contenu</h1>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
+        <div>
+          <label>Sujet du post *</label>
+          <input type="text" placeholder="Ex : Bonbon piment maison, Formule Terroir du vendredi…" value={form.sujet} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { sujet: e.target.value }); }); }} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div>
+            <label>Type de contenu *</label>
+            <select value={form.type} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { type: e.target.value }); }); }}>
+              <option value="">Sélectionner…</option>
+              {TYPES_CONTENU.map(function(t) { return <option key={t} value={t}>{t}</option>; })}
+            </select>
+          </div>
+          <div>
+            <label>Intention</label>
+            <select value={form.intention} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { intention: e.target.value }); }); }}>
+              <option value="">Sélectionner…</option>
+              {INTENTIONS.map(function(i) { return <option key={i} value={i}>{i}</option>; })}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>Détails supplémentaires</label>
+          <textarea rows="3" placeholder="Décris le produit, ce qui le rend spécial…" value={form.details} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { details: e.target.value }); }); }} style={{ resize: "vertical" }} />
+        </div>
+        
+        <div>
+  <label>Photo du patron</label>
+  <input 
+    type="file" 
+    accept="image/*"
+    onChange={(e) => {
+      setForm(f => ({
+        ...f,
+        photo: e.target.files[0]
+      }));
+    }}
+  />
+</div>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
+        <label style={{ marginBottom: "10px" }}>Plateformes cibles *</label>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {PLATFORMS_OPTIONS.map(function(p) {
+            const active = form.plateformes.includes(p);
+            return (
+              <button key={p} onClick={function() { togglePlatform(p); }} style={{ padding: "8px 16px", borderRadius: "20px", border: "1px solid " + (active ? "#FFE000" : "rgba(255,224,0,0.2)"), background: active ? "rgba(255,224,0,0.15)" : "transparent", color: active ? "#FFE000" : "rgba(255,255,255,0.4)", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif", transition: "all 0.2s" }}>
+                {PLATFORMS_ICONS[p]} {p}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <input type="checkbox" id="bypass" checked={form.bypass} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { bypass: e.target.checked }); }); }} style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "#FFE000", flexShrink: 0 }} />
+          <label htmlFor="bypass" style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px", textTransform: "none", letterSpacing: "0", cursor: "pointer", marginBottom: 0 }}>
+            Bypass visuel — utiliser une photo existante sans traitement IA
+          </label>
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
+        <label>Date de publication souhaitée</label>
+        <input type="date" value={form.date} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { date: e.target.value }); }); }} style={{ maxWidth: "200px" }} />
+        <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "11px", marginTop: "6px" }}>Laisser vide = traitement immédiat</div>
+      </div>
+
+      <div style={{ display: "flex", gap: "10px" }}>
+        <button onClick={onClose} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.5)", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif" }}>Annuler</button>
+        <button onClick={handleSubmit} disabled={submitting} style={{ flex: 2, padding: "15px", borderRadius: "11px", border: "none", background: submitting ? "rgba(255,224,0,0.4)" : "#FFE000", color: "#6B2D0F", fontWeight: "700", fontSize: "14px", cursor: submitting ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
+          {submitting ? "⏳ Envoi en cours…" : "🚀 Envoyer à Make"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [pubs, setPubs]         = React.useState([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [selected, setSelected] = React.useState(null);
+  const [view, setView]         = React.useState("list");
+  const [busy, setBusy]         = React.useState(null);
+  const [toast, setToast]       = React.useState(null);
+  const [tab, setTab]           = React.useState("attente");
+  const [confirm, setConfirm]   = React.useState(false);
+
+  const showToast = function(msg, type) {
+    setToast({ msg: msg, type: type || "ok" });
+    setTimeout(function() { setToast(null); }, 4000);
+  };
+
+  const fetchPubs = async function() {
+    // Lecture Airtable désactivée côté front pour éviter les erreurs et protéger la clé API.
+    // Le formulaire "Nouveau" continue d'envoyer les données vers Make.
+    setPubs([]);
+    setLoading(false);
+  };
+
+  React.useEffect(function() { fetchPubs(); }, []);
+
+  const patch = async function(id, fields) {
+    const res = await fetch(MAKE_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "update",
+        recordId: id,
+        fields: fields
+      })
+    });
+    return res.json().catch(function() { return {}; });
+  };
+
+  const handleValider = async function() {
+    setBusy("valider");
+    try {
+      await patch(selected.id, { "Statut": STATUT_VALIDE });
+      showToast("✅ Validée — Make va publier sur les réseaux !");
+      setSelected(null); setView("list"); await fetchPubs();
+    } catch(e) { showToast("Erreur validation", "err"); }
+    setBusy(null);
+  };
+
+  const handleRegenerer = async function() {
+    setBusy("regen");
+    try {
+      await patch(selected.id, { "Demande de régénération": true });
+      showToast("🔄 Régénération lancée !");
+      setSelected(null); setView("list"); await fetchPubs();
+    } catch(e) { showToast("Erreur", "err"); }
+    setBusy(null);
+  };
+
+  const handleSupprimer = async function() {
+    setBusy("del");
+    try {
+      await fetch(MAKE_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          recordId: selected.id
+        })
+      });
+      showToast("🗑️ Publication supprimée");
+      setSelected(null); setView("list"); setConfirm(false); await fetchPubs();
+    } catch(e) { showToast("Erreur", "err"); }
+    setBusy(null);
+  };
+
+  const attente = pubs.filter(function(p) { return p.fields.Statut === STATUT_ATTENTE; });
+  const valides  = pubs.filter(function(p) { return p.fields.Statut === STATUT_VALIDE; });
+  const f = selected ? selected.fields : {};
+  const selectedPlatforms = f["Plateformes cibles"] || [];
+
+  const goBack = function() { setSelected(null); setView("list"); setConfirm(false); };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0F0700" }}>
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse 80% 60% at 20% 0%, rgba(107,45,15,0.4) 0%, transparent 60%)" }} />
+
+      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,7,0,0.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(255,224,0,0.1)", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "56px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {view !== "list" && <button onClick={goBack} style={{ background: "rgba(255,224,0,0.08)", border: "1px solid rgba(255,224,0,0.2)", color: "#FFE000", borderRadius: "8px", padding: "5px 12px", cursor: "pointer", fontSize: "12px", fontFamily: "Georgia, serif" }}>← Retour</button>}
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div style={{ width: "32px", height: "32px", background: "#FFE000", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px" }}>🥖</div>
+            <div>
+              <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "13px" }}>l'entredeusienne</div>
+              <div style={{ color: "rgba(255,224,0,0.4)", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" }}>{view === "new" ? "Nouvelle publication" : "Gestion publications"}</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {attente.length > 0 && view === "list" && <div style={{ background: "rgba(255,200,0,0.15)", border: "1px solid rgba(255,224,0,0.3)", borderRadius: "20px", padding: "3px 10px", color: "#FFE000", fontSize: "11px", fontWeight: "600" }}>{attente.length} en attente</div>}
+          {view === "list" && <button onClick={function() { setView("new"); }} style={{ background: "#FFE000", border: "none", color: "#6B2D0F", borderRadius: "8px", padding: "6px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", fontFamily: "Georgia, serif" }}>+ Nouveau</button>}
+          {view === "list" && <button onClick={fetchPubs} style={{ background: "transparent", border: "1px solid rgba(255,224,0,0.15)", color: "rgba(255,224,0,0.5)", borderRadius: "8px", padding: "5px 10px", cursor: "pointer", fontSize: "14px" }}>↻</button>}
+        </div>
+      </header>
+
+      <div style={{ position: "relative", zIndex: 1, maxWidth: "900px", margin: "0 auto", padding: "24px 16px" }}>
+
+        {view === "new" && <NewPublicationForm onClose={goBack} onSuccess={function() { goBack(); fetchPubs(); }} showToast={showToast} />}
+
+        {view === "list" && (
+          <>
+            <div style={{ display: "flex", gap: "4px", marginBottom: "20px", borderBottom: "1px solid rgba(255,224,0,0.08)" }}>
+              {[{ id: "attente", label: "À valider", count: attente.length }, { id: "valides", label: "Validés", count: valides.length }].map(function(t) {
+                return (
+                  <button key={t.id} onClick={function() { setTab(t.id); }} style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px 14px", fontFamily: "Georgia, serif", color: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.35)", fontSize: "13px", fontWeight: tab === t.id ? "700" : "400", borderBottom: tab === t.id ? "2px solid #FFE000" : "2px solid transparent", transition: "all 0.2s", display: "flex", alignItems: "center", gap: "6px" }}>
+                    {t.label}
+                    {t.count > 0 && <span style={{ background: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.1)", color: tab === t.id ? "#6B2D0F" : "rgba(255,255,255,0.5)", borderRadius: "10px", padding: "0 6px", fontSize: "10px", fontWeight: "700" }}>{t.count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: "center", padding: "60px", color: "rgba(255,224,0,0.4)" }}>
+                <div style={{ fontSize: "32px", marginBottom: "10px" }}>🥐</div>
+                <div style={{ fontSize: "12px" }}>Chargement…</div>
+              </div>
+            ) : (tab === "attente" ? attente : valides).length === 0 ? (
+              <div style={{ textAlign: "center", padding: "50px 20px", background: "rgba(255,224,0,0.02)", border: "1px dashed rgba(255,224,0,0.1)", borderRadius: "14px" }}>
+                <div style={{ fontSize: "36px", marginBottom: "10px" }}>{tab === "attente" ? "✨" : "📭"}</div>
+                <div style={{ color: "#FFE000", fontSize: "15px", fontWeight: "700", marginBottom: "5px" }}>{tab === "attente" ? "Tout est à jour !" : "Aucune publication validée"}</div>
+                <div style={{ color: "rgba(255,224,0,0.4)", fontSize: "12px" }}>{tab === "attente" ? "Aucune publication en attente" : "Les publications validées apparaîtront ici"}</div>
+                {tab === "attente" && <button onClick={function() { setView("new"); }} style={{ marginTop: "16px", background: "#FFE000", border: "none", color: "#6B2D0F", borderRadius: "9px", padding: "10px 20px", cursor: "pointer", fontSize: "13px", fontWeight: "700", fontFamily: "Georgia, serif" }}>+ Créer une publication</button>}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
+                {(tab === "attente" ? attente : valides).map(function(pub) {
+                  return <PubCard key={pub.id} pub={pub} onOpen={function(p) { setSelected(p); setView("detail"); }} />;
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {view === "detail" && selected && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+            <div>
+              <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>{f["Type de contenu"]} · {formatDate(f["Date de création"])}</div>
+              <h1 style={{ color: "#FFE000", fontSize: "20px", fontWeight: "700", lineHeight: "1.2" }}>{f["Sujet du post"] || "Sans titre"}</h1>
+            </div>
+
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
+              <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "14px" }}>🖼️ Visuels par plateforme</div>
+              <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                {VISUAL_PLATFORMS.map(function(platform) {
+                  return <VisualCard key={platform.key} platform={platform} url={f[platform.key]} active={selectedPlatforms.includes(platform.label)} />;
+                })}
+              </div>
+              {selectedPlatforms.length > 0 && <div style={{ marginTop: "12px", fontSize: "10px", color: "rgba(255,255,255,0.2)" }}>Plateformes : {selectedPlatforms.join(" · ")}</div>}
+            </div>
+
+            {(f[" Hook IA"] || f["Hook IA"] || f["Corps du post IA"]) && (
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "14px", padding: "18px" }}>
+                <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "14px" }}>📝 Contenu généré</div>
+                {(f[" Hook IA"] || f["Hook IA"]) && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Hook</div><div style={{ color: "#FFE000", fontSize: "15px", fontWeight: "700", lineHeight: "1.4" }}>{f[" Hook IA"] || f["Hook IA"]}</div></div>}
+                {f["Corps du post IA"] && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Corps</div><div style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px", lineHeight: "1.8", whiteSpace: "pre-wrap" }}>{f["Corps du post IA"]}</div></div>}
+                {f["CTA IA"] && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>CTA</div><div style={{ color: "rgba(255,255,255,0.65)", fontSize: "13px" }}>{f["CTA IA"]}</div></div>}
+                {f["Hashtags IA"] && <div><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Hashtags</div><div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", lineHeight: "1.8" }}>{f["Hashtags IA"]}</div></div>}
+              </div>
+            )}
+
+            {f.Statut !== STATUT_VALIDE ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <button onClick={handleValider} disabled={!!busy} style={{ padding: "15px", borderRadius: "11px", border: "none", background: busy === "valider" ? "rgba(255,224,0,0.4)" : "#FFE000", color: "#6B2D0F", fontWeight: "700", fontSize: "14px", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif", transition: "all 0.2s" }}>
+                  {busy === "valider" ? "⏳ Publication en cours…" : "✅ Valider & Publier sur les réseaux"}
+                </button>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button onClick={handleRegenerer} disabled={!!busy} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,224,0,0.2)", background: "rgba(255,224,0,0.06)", color: "#FFE000", fontSize: "13px", fontWeight: "600", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
+                    {busy === "regen" ? "⏳ Lancement…" : "🔄 Régénérer le visuel"}
+                  </button>
+                  <button onClick={function() { setConfirm(true); }} disabled={!!busy} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,80,80,0.2)", background: "rgba(255,80,80,0.05)", color: "rgba(255,120,120,0.8)", fontSize: "13px", fontWeight: "600", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
+                    🗑️ Supprimer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: "13px", borderRadius: "11px", background: "rgba(39,80,10,0.2)", border: "1px solid rgba(39,80,10,0.4)", color: "#a8e07a", fontSize: "13px", textAlign: "center", fontWeight: "600" }}>
+                ✅ Validée — en attente de publication par Make
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {confirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "20px" }}>
+          <div style={{ background: "#1a0a00", border: "1px solid rgba(255,80,80,0.3)", borderRadius: "14px", padding: "26px", maxWidth: "340px", width: "100%", textAlign: "center" }}>
+            <div style={{ fontSize: "32px", marginBottom: "10px" }}>⚠️</div>
+            <div style={{ color: "#fff", fontWeight: "700", fontSize: "15px", marginBottom: "7px" }}>Supprimer cette publication ?</div>
+            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px", marginBottom: "22px" }}>Action irréversible — la publication sera définitivement supprimée.</div>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={function() { setConfirm(false); }} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "Georgia, serif", fontSize: "13px" }}>Annuler</button>
+              <button onClick={handleSupprimer} disabled={!!busy} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "none", background: "#C0392B", color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif", fontSize: "13px", fontWeight: "700" }}>
+                {busy === "del" ? "Suppression…" : "Supprimer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", background: toast.type === "err" ? "#8B1A1A" : "#1A4A0A", border: "1px solid " + (toast.type === "err" ? "rgba(255,80,80,0.3)" : "rgba(80,200,80,0.3)"), color: "#fff", padding: "11px 18px", borderRadius: "9px", fontSize: "13px", fontFamily: "Georgia, serif", zIndex: 999, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", whiteSpace: "nowrap" }}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
 </script>
+</body>
+</html>
