@@ -167,19 +167,15 @@ try {
   if (form.date) fields["Date de publication"] = form.date;
 
   const res = await fetch(MAKE_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ action: "create", fields: fields })
-  });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ action: "create", fields: fields })
+});
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text);
-  }
-
-  const data = await res.json();
+// 🔒 IMPORTANT
+await res.text(););
 
   console.log("OK:", data);
 
