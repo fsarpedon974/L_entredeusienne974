@@ -9,484 +9,668 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0F0700; font-family: Georgia, serif; color: #fff; }
+    body { background: #0F0700; font-family: Georgia, serif; color: #fff; min-height: 100vh; }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-thumb { background: rgba(255,224,0,0.2); border-radius: 2px; }
     input, textarea, select {
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,224,0,0.15);
-      border-radius: 9px; color: #fff;
-      font-family: Georgia, serif; font-size: 13px;
-      padding: 10px 12px; width: 100%; outline: none;
-      transition: border-color 0.2s;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,224,0,0.15);
+      border-radius: 9px; color: #fff; font-family: Georgia, serif; font-size: 13px;
+      padding: 10px 12px; width: 100%; outline: none; transition: border-color 0.2s;
     }
-    input:focus, textarea:focus, select:focus { border-color: rgba(255,224,0,0.4); }
+    input:focus, textarea:focus, select:focus { border-color: rgba(255,224,0,0.5); }
     select option { background: #1a0800; color: #fff; }
     input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(0.4); }
-    label { color: rgba(255,224,0,0.6); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 5px; }
+    input[type="file"] { padding: 8px 12px; cursor: pointer; }
+    label { color: rgba(255,224,0,0.6); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px; }
+    button { font-family: Georgia, serif; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
   </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 
-// ============================================================
-// CONFIGURATION
-// ============================================================
-// Remplace cette URL par ton webhook Make réel.
-const MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/kvj121sx53oolapt6yhvrsmk1wc36vyb";
-// ============================================================
+// ════════════════════════════════════════════════
+//  CONFIGURATION  — remplis tes vraies valeurs ici
+// ════════════════════════════════════════════════
+const AIRTABLE_PAT = "patvFXrO0qMtEcusu.da19a47e1f56c2cef6ffc01f8186f66f2f429b1828957e40daa3544df58d83bf";
+const BASE_ID      = "apporFmBrAsKQ0a4V";
+const TABLE_ID     = "tbllSY7mYDkHIKjIF";
+// ════════════════════════════════════════════════
 
-const TABLE_NAME = "Publications";
+const AT_URL  = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`;
+const AT_HEAD = { "Authorization": `Bearer ${AIRTABLE_PAT}`, "Content-Type": "application/json" };
 
-const STATUT_NOUVEAU = "🆕 Nouveau";
-const STATUT_ATTENTE = "⏳ En attente validation";
-const STATUT_VALIDE  = "📤 Validé — À publier";
+// Valeurs exactes des statuts Airtable
+const S_NOUVEAU = "🆕 Nouveau";
+const S_ATTENTE = "⏳ En attente validation";
+const S_VALIDE  = "📤 Validé — À publier";
 
-// Valeurs exactes Airtable
-const PLATFORMS_OPTIONS = ["Facebook", "Instagram", "TikTok", "Affichage Dynamique"];
-const PLATFORMS_ICONS   = { "Facebook": "📘", "Instagram": "📸", "TikTok": "🎵", "Affichage Dynamique": "📺" };
+const PLATFORMS  = ["Facebook", "Instagram", "TikTok", "Affichage Dynamique"];
+const P_ICONS    = { Facebook: "📘", Instagram: "📸", TikTok: "🎵", "Affichage Dynamique": "📺" };
 
-const TYPES_CONTENU = [
-  "Produit du jour",
-  "Formule midi",
-  "Événement",
-  "Info pratique",
-  "Spécialité",
-  "Promotion",
-  "🤖 Fallback engagement"
+const TYPES = [
+  "Produit du jour", "Formule midi", "Événement",
+  "Info pratique", "Spécialité", "Promotion", "🤖 Fallback engagement"
 ];
 
 const INTENTIONS = [
-  "Donner faim",
-  "Faire venir maintenant",
-  "Mettre en avant une offre",
-  "Montrer ambiance",
-  "Informer simplement"
+  "Donner faim", "Faire venir maintenant",
+  "Mettre en avant une offre", "Montrer ambiance", "Informer simplement"
 ];
 
-const VISUAL_PLATFORMS = [
-  { key: "Visuel Facebook (URL)",        label: "Facebook",          icon: "📘", ratio: "1:1"  },
-  { key: "Visuel Instagram (URL)",       label: "Instagram",         icon: "📸", ratio: "9:16" },
-  { key: "Visuel TikTok (URL)",          label: "TikTok",            icon: "🎵", ratio: "9:16" },
-  { key: "Visuel TV (URL)",              label: "Affichage Dynamique", icon: "📺", ratio: "16:9" },
+const VISUALS = [
+  { key: "Visuel Facebook (URL)",  label: "Facebook",            icon: "📘", w: 1, h: 1   },
+  { key: "Visuel Instagram (URL)", label: "Instagram",           icon: "📸", w: 9, h: 16  },
+  { key: "Visuel TikTok (URL)",    label: "TikTok",              icon: "🎵", w: 9, h: 16  },
+  { key: "Visuel TV (URL)",        label: "Affichage Dynamique", icon: "📺", w: 16, h: 9  },
 ];
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+const fmt = iso => iso
+  ? new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+  : "—";
+
+// ── API helpers ──────────────────────────────────
+const atGet = (qs = "") =>
+  fetch(`${AT_URL}${qs}`, { headers: { Authorization: `Bearer ${AIRTABLE_PAT}` } }).then(r => r.json());
+
+const atPatch = (id, fields) =>
+  fetch(`${AT_URL}/${id}`, { method: "PATCH", headers: AT_HEAD, body: JSON.stringify({ fields }) }).then(r => r.json());
+
+const atCreate = fields =>
+  fetch(AT_URL, { method: "POST", headers: AT_HEAD, body: JSON.stringify({ fields }) }).then(r => r.json());
+
+const atDelete = id =>
+  fetch(`${AT_URL}/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${AIRTABLE_PAT}` } });
+
+async function getPhotoFieldId() {
+  try {
+    const d = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
+      headers: { Authorization: `Bearer ${AIRTABLE_PAT}` }
+    }).then(r => r.json());
+    const tbl = d.tables && d.tables.find(t => t.id === TABLE_ID);
+    const fld = tbl && tbl.fields.find(f => f.name === "Photo du patron");
+    return fld ? fld.id : null;
+  } catch { return null; }
 }
 
-function VisualCard({ platform, url, active }) {
-  const parts = platform.ratio.split(":");
-  const w = parseInt(parts[0]), h = parseInt(parts[1]);
+async function uploadPhoto(recordId, fieldId, file) {
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  fd.append("filename", file.name);
+  fd.append("contentType", file.type);
+  const r = await fetch(
+    `https://content.airtable.com/v0/${BASE_ID}/${recordId}/uploadAttachment/${fieldId}`,
+    { method: "POST", headers: { Authorization: `Bearer ${AIRTABLE_PAT}` }, body: fd }
+  );
+  if (!r.ok) throw new Error("Upload photo : " + await r.text());
+  return r.json();
+}
+
+// ── Composants UI ────────────────────────────────
+
+function Badge({ children, color = "#FFE000", bg = "rgba(255,224,0,0.12)" }) {
+  return <span style={{ background: bg, color, borderRadius: "20px", padding: "2px 8px", fontSize: "10px", fontWeight: "600", whiteSpace: "nowrap" }}>{children}</span>;
+}
+
+function Btn({ onClick, disabled, variant = "primary", style: sx = {}, children }) {
+  const base = { border: "none", borderRadius: "11px", padding: "13px 18px", fontSize: "13px", fontWeight: "700", cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.18s", fontFamily: "Georgia, serif" };
+  const variants = {
+    primary:   { background: disabled ? "rgba(255,224,0,0.35)" : "#FFE000", color: "#6B2D0F" },
+    ghost:     { background: "transparent", border: "1px solid rgba(255,224,0,0.2)", color: "#FFE000" },
+    danger:    { background: "rgba(255,60,60,0.08)", border: "1px solid rgba(255,80,80,0.25)", color: "rgba(255,130,130,0.9)" },
+    secondary: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" },
+  };
+  return <button onClick={!disabled ? onClick : undefined} style={{ ...base, ...variants[variant], opacity: disabled ? 0.7 : 1, ...sx }}>{children}</button>;
+}
+
+function Card({ children, style: sx = {} }) {
+  return <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px", ...sx }}>{children}</div>;
+}
+
+function SectionTitle({ children }) {
+  return <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "12px" }}>{children}</div>;
+}
+
+// ── Carte visuel plateforme ──────────────────────
+function VisualCard({ v, url, active }) {
+  const pct = (v.h / v.w * 100).toFixed(1);
   return (
-    <div style={{ opacity: active ? 1 : 0.4, transition: "opacity 0.3s", flex: platform.ratio === "16:9" ? "2 1 200px" : "1 1 90px", maxWidth: platform.ratio === "16:9" ? "320px" : platform.ratio === "1:1" ? "190px" : "115px" }}>
-      <div style={{ marginBottom: "6px", display: "flex", alignItems: "center", gap: "5px", color: active ? "#FFE000" : "rgba(255,224,0,0.35)", fontSize: "11px", fontWeight: "600", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-        <span>{platform.icon}</span><span>{platform.label}</span>
-        <span style={{ opacity: 0.5, fontWeight: "400", fontSize: "9px" }}>{platform.ratio}</span>
+    <div style={{ opacity: active ? 1 : 0.38, transition: "opacity 0.3s", flex: v.w > v.h ? "2 1 200px" : "1 1 100px", maxWidth: v.w > v.h ? "340px" : v.w === v.h ? "200px" : "120px" }}>
+      <div style={{ marginBottom: "6px", display: "flex", alignItems: "center", gap: "5px", color: active ? "#FFE000" : "rgba(255,224,0,0.3)", fontSize: "10px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        {v.icon} {v.label} <span style={{ opacity: 0.5, fontWeight: "400" }}>{v.w}:{v.h}</span>
       </div>
-      <div style={{ position: "relative", paddingBottom: (h/w*100) + "%" }}>
+      <div style={{ position: "relative", paddingBottom: pct + "%" }}>
         <div style={{ position: "absolute", inset: 0 }}>
-          {url ? (
-            <img src={url} alt={platform.label} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "10px", border: active ? "2px solid rgba(255,224,0,0.6)" : "1px solid rgba(255,255,255,0.1)" }} />
-          ) : (
-            <div style={{ width: "100%", height: "100%", borderRadius: "10px", background: "rgba(255,255,255,0.03)", border: "1.5px dashed rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: "10px", gap: "4px" }}>
-              <span style={{ fontSize: "20px" }}>🖼️</span><span>Non généré</span>
-            </div>
-          )}
+          {url
+            ? <img src={url} alt={v.label} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "10px", border: active ? "2px solid rgba(255,224,0,0.55)" : "1px solid rgba(255,255,255,0.08)" }} />
+            : <div style={{ width: "100%", height: "100%", borderRadius: "10px", background: "rgba(255,255,255,0.025)", border: "1.5px dashed rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.18)", fontSize: "10px", gap: "5px" }}>
+                <span style={{ fontSize: "22px" }}>🖼️</span><span>Non généré</span>
+              </div>
+          }
         </div>
       </div>
     </div>
   );
 }
 
+// ── Carte publication (liste) ────────────────────
 function PubCard({ pub, onOpen }) {
   const f = pub.fields;
-  const platforms = f["Plateformes cibles"] || [];
-  const previewUrl = f["Visuel Facebook (URL)"] || f["Visuel Instagram (URL)"] || f["Visuel TV (URL)"];
-  const [hover, setHover] = React.useState(false);
+  const plats = f["Plateformes cibles"] || [];
+  const thumb = (f["Photo du patron"] && f["Photo du patron"][0] && f["Photo du patron"][0].thumbnails && f["Photo du patron"][0].thumbnails.small && f["Photo du patron"][0].thumbnails.small.url)
+    || f["Visuel Facebook (URL)"] || f["Visuel Instagram (URL)"] || f["Visuel TV (URL)"];
+  const [hov, setHov] = React.useState(false);
   return (
-    <div onClick={() => onOpen(pub)} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ background: hover ? "rgba(255,224,0,0.06)" : "rgba(255,255,255,0.03)", border: "1px solid " + (hover ? "rgba(255,224,0,0.25)" : "rgba(255,224,0,0.1)"), borderRadius: "13px", padding: "13px 15px", cursor: "pointer", display: "flex", gap: "13px", alignItems: "center", transition: "all 0.2s" }}>
-      <div style={{ width: "58px", height: "58px", borderRadius: "9px", flexShrink: 0, background: "rgba(255,224,0,0.07)", border: "1px solid rgba(255,224,0,0.15)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {previewUrl ? <img src={previewUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "20px" }}>🖼️</span>}
+    <div onClick={() => onOpen(pub)}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      style={{ background: hov ? "rgba(255,224,0,0.055)" : "rgba(255,255,255,0.025)", border: "1px solid " + (hov ? "rgba(255,224,0,0.22)" : "rgba(255,224,0,0.08)"), borderRadius: "13px", padding: "13px 15px", cursor: "pointer", display: "flex", gap: "13px", alignItems: "center", transition: "all 0.18s" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "9px", flexShrink: 0, background: "rgba(255,224,0,0.07)", border: "1px solid rgba(255,224,0,0.13)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "22px" }}>🖼️</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "14px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f["Sujet du post"] || "Sans titre"}</div>
+        <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "14px", marginBottom: "5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {f["Sujet du post"] || "Sans titre"}
+        </div>
         <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "4px" }}>
-          {f["Type de contenu"] && <span style={{ background: "rgba(255,224,0,0.1)", color: "#FFE000", borderRadius: "20px", padding: "1px 7px", fontSize: "10px" }}>{f["Type de contenu"]}</span>}
-          {platforms.map(function(p) { return <span key={p} style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)", borderRadius: "20px", padding: "1px 7px", fontSize: "10px" }}>{p}</span>; })}
+          {f["Type de contenu"] && <Badge>{f["Type de contenu"]}</Badge>}
+          {plats.map(p => <Badge key={p} color="rgba(255,255,255,0.4)" bg="rgba(255,255,255,0.05)">{P_ICONS[p]} {p}</Badge>)}
         </div>
-        <div style={{ color: "rgba(255,255,255,0.28)", fontSize: "11px" }}>
-          {formatDate(f["Date de création"])}
-          {f["Mode"] === "fallback" && <span style={{ marginLeft: "8px", color: "rgba(255,224,0,0.32)" }}>• Auto</span>}
-        </div>
+        <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "11px" }}>{fmt(f["Date de création"])}</div>
       </div>
-      <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "18px" }}>›</div>
+      <div style={{ color: "rgba(255,224,0,0.3)", fontSize: "20px", flexShrink: 0 }}>›</div>
     </div>
   );
 }
 
-function NewPublicationForm({ onClose, onSuccess, showToast }) {
-  const [form, setForm] = React.useState({ sujet: "", type: "", details: "", intention: "", plateformes: [], date: "", bypass: false, photo: null });
-  const [submitting, setSubmitting] = React.useState(false);
+// ── Formulaire nouvelle publication ─────────────
+function NewPubForm({ onClose, onSuccess, showToast }) {
+  const [form, setForm] = React.useState({
+    sujet: "", type: "", details: "", intention: "",
+    plateformes: [], date: "", bypass: false, photo: null
+  });
+  const [preview, setPreview] = React.useState(null);
+  const [busy, setBusy]       = React.useState("");
 
-  const togglePlatform = function(p) {
-    setForm(function(f) {
-      return Object.assign({}, f, { plateformes: f.plateformes.includes(p) ? f.plateformes.filter(function(x) { return x !== p; }) : f.plateformes.concat([p]) });
-    });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const togglePlat = p => set("plateformes",
+    form.plateformes.includes(p) ? form.plateformes.filter(x => x !== p) : [...form.plateformes, p]
+  );
+
+  const handlePhoto = e => {
+    const file = e.target.files[0]; if (!file) return;
+    set("photo", file);
+    const r = new FileReader(); r.onload = ev => setPreview(ev.target.result); r.readAsDataURL(file);
   };
 
-  const handleSubmit = async function() {
+  const handleSubmit = async () => {
+    if (!form.sujet.trim()) { showToast("Le sujet est obligatoire", "err"); return; }
+    if (!form.type)          { showToast("Sélectionne un type", "err"); return; }
+    if (!form.plateformes.length) { showToast("Sélectionne au moins une plateforme", "err"); return; }
+    setBusy("Création de la fiche…");
+    try {
+      const fields = {
+        "Sujet du post":      form.sujet.trim(),
+        "Type de contenu":    form.type,
+        "Plateformes cibles": form.plateformes,
+        "Statut":             S_NOUVEAU,
+        "Mode":               "normal",
+        "Bypass visuel":      form.bypass,
+      };
+      if (form.details)   fields["Détails supplémentaires"] = form.details;
+      if (form.intention) fields["Intention"] = form.intention;
+      if (form.date)      fields["Date de publication"] = form.date;
 
-if (!form.sujet || !form.type || form.plateformes.length === 0) {
-  showToast("Remplis au minimum : Sujet, Type et Plateformes", "err");
-  return;
-}
+      const record = await atCreate(fields);
+      if (record.error) throw new Error(record.error.message || "Erreur Airtable");
 
-if (submitting) return;
+      if (form.photo) {
+        setBusy("Upload de la photo…");
+        const fid = await getPhotoFieldId();
+        if (fid) { await uploadPhoto(record.id, fid, form.photo); }
+        else      { showToast("⚠️ Photo non uploadée — champ introuvable", "err"); }
+      }
 
-setSubmitting(true);
-
-try {
-
-  const cleanPlatforms = form.plateformes.map(p => p.trim());
-
-  const fields = {
-    "Sujet du post": form.sujet,
-    "Type de contenu": form.type,
-    "Plateformes cibles": cleanPlatforms,
-    "Statut": STATUT_NOUVEAU,
-    "Mode": "normal",
-    "Bypass visuel": form.bypass
+      showToast("✅ Publication créée et envoyée à Make !");
+      onSuccess();
+    } catch(e) {
+      showToast("Erreur : " + e.message, "err");
+    }
+    setBusy("");
   };
 
-  if (form.details) fields["Détails supplémentaires"] = form.details;
-  if (form.intention) fields["Intention"] = form.intention;
-  if (form.date) fields["Date de publication"] = form.date;
-
-  const res = await fetch(MAKE_WEBHOOK_URL, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({ action: "create", fields: fields })
-});
-
-// 🔒 IMPORTANT
-const data = await res.text();
-
-  console.log("OK:", data);
-
-  showToast("✅ Publication envoyée !");
-  onSuccess();
-
-} catch (e) {
-  console.error(e);
-  showToast("Erreur : " + e.message, "err");
-}
-
-setSubmitting(false);
-};
- 
-return (
+  return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div>
-        <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>Nouvelle publication</div>
-        <h1 style={{ color: "#FFE000", fontSize: "20px", fontWeight: "700" }}>Créer un contenu</h1>
+        <div style={{ color: "rgba(255,224,0,0.4)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "4px" }}>Nouvelle publication</div>
+        <h1 style={{ color: "#FFE000", fontSize: "21px", fontWeight: "700" }}>Créer un contenu</h1>
       </div>
 
-      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
-        <div>
-          <label>Sujet du post *</label>
-          <input type="text" placeholder="Ex : Bonbon piment maison, Formule Terroir du vendredi…" value={form.sujet} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { sujet: e.target.value }); }); }} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+      {/* Infos principales */}
+      <Card>
+        <SectionTitle>📝 Infos principales</SectionTitle>
+        <div style={{ display: "flex", flexDirection: "column", gap: "13px" }}>
           <div>
-            <label>Type de contenu *</label>
-            <select value={form.type} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { type: e.target.value }); }); }}>
-              <option value="">Sélectionner…</option>
-              {TYPES_CONTENU.map(function(t) { return <option key={t} value={t}>{t}</option>; })}
-            </select>
+            <label>Sujet du post *</label>
+            <input type="text" placeholder="Ex : Bonbon piment maison, Formule Terroir du vendredi…"
+              value={form.sujet} onChange={e => set("sujet", e.target.value)} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div>
+              <label>Type de contenu *</label>
+              <select value={form.type} onChange={e => set("type", e.target.value)}>
+                <option value="">Sélectionner…</option>
+                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Intention</label>
+              <select value={form.intention} onChange={e => set("intention", e.target.value)}>
+                <option value="">Sélectionner…</option>
+                {INTENTIONS.map(i => <option key={i} value={i}>{i}</option>)}
+              </select>
+            </div>
           </div>
           <div>
-            <label>Intention</label>
-            <select value={form.intention} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { intention: e.target.value }); }); }}>
-              <option value="">Sélectionner…</option>
-              {INTENTIONS.map(function(i) { return <option key={i} value={i}>{i}</option>; })}
-            </select>
+            <label>Détails supplémentaires</label>
+            <textarea rows="3" placeholder="Décris le produit, ce qui le rend unique, l'ambiance…"
+              value={form.details} onChange={e => set("details", e.target.value)} style={{ resize: "vertical" }} />
           </div>
         </div>
-        <div>
-          <label>Détails supplémentaires</label>
-          <textarea rows="3" placeholder="Décris le produit, ce qui le rend spécial…" value={form.details} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { details: e.target.value }); }); }} style={{ resize: "vertical" }} />
-        </div>
-        
-        <div>
-  <label>Photo du patron</label>
-  <input 
-    type="file" 
-    accept="image/*"
-    onChange={(e) => {
-      setForm(f => ({
-        ...f,
-        photo: e.target.files[0]
-      }));
-    }}
-  />
-</div>
-      </div>
+      </Card>
 
-      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
-        <label style={{ marginBottom: "10px" }}>Plateformes cibles *</label>
+      {/* Photo */}
+      <Card>
+        <SectionTitle>📷 Photo du patron</SectionTitle>
+        <input type="file" accept="image/*" onChange={handlePhoto} />
+        {preview && (
+          <div style={{ marginTop: "12px", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+            <img src={preview} alt="" style={{ width: "90px", height: "90px", objectFit: "cover", borderRadius: "9px", border: "1.5px solid rgba(255,224,0,0.3)", flexShrink: 0 }} />
+            <div style={{ paddingTop: "4px" }}>
+              <div style={{ color: "#FFE000", fontSize: "12px", fontWeight: "600", marginBottom: "3px" }}>{form.photo && form.photo.name}</div>
+              <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginBottom: "8px" }}>{form.photo && (form.photo.size / 1024).toFixed(0)} Ko</div>
+              <Btn variant="danger" style={{ padding: "4px 10px", fontSize: "11px", borderRadius: "7px" }}
+                onClick={() => { set("photo", null); setPreview(null); }}>Supprimer</Btn>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Plateformes */}
+      <Card>
+        <SectionTitle>🎯 Plateformes cibles *</SectionTitle>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          {PLATFORMS_OPTIONS.map(function(p) {
-            const active = form.plateformes.includes(p);
+          {PLATFORMS.map(p => {
+            const on = form.plateformes.includes(p);
             return (
-              <button key={p} onClick={function() { togglePlatform(p); }} style={{ padding: "8px 16px", borderRadius: "20px", border: "1px solid " + (active ? "#FFE000" : "rgba(255,224,0,0.2)"), background: active ? "rgba(255,224,0,0.15)" : "transparent", color: active ? "#FFE000" : "rgba(255,255,255,0.4)", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif", transition: "all 0.2s" }}>
-                {PLATFORMS_ICONS[p]} {p}
+              <button key={p} onClick={() => togglePlat(p)} style={{ padding: "9px 16px", borderRadius: "20px", border: "1px solid " + (on ? "#FFE000" : "rgba(255,224,0,0.18)"), background: on ? "rgba(255,224,0,0.14)" : "transparent", color: on ? "#FFE000" : "rgba(255,255,255,0.38)", fontSize: "13px", cursor: "pointer", transition: "all 0.18s" }}>
+                {P_ICONS[p]} {p}
               </button>
             );
           })}
         </div>
-      </div>
+      </Card>
 
-      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <input type="checkbox" id="bypass" checked={form.bypass} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { bypass: e.target.checked }); }); }} style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "#FFE000", flexShrink: 0 }} />
-          <label htmlFor="bypass" style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px", textTransform: "none", letterSpacing: "0", cursor: "pointer", marginBottom: 0 }}>
-            Bypass visuel — utiliser une photo existante sans traitement IA
-          </label>
+      {/* Options */}
+      <Card>
+        <SectionTitle>⚙️ Options</SectionTitle>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <input type="checkbox" id="bypass" checked={form.bypass} onChange={e => set("bypass", e.target.checked)}
+              style={{ width: "16px", height: "16px", accentColor: "#FFE000", flexShrink: 0 }} />
+            <label htmlFor="bypass" style={{ color: "rgba(255,255,255,0.5)", fontSize: "12px", textTransform: "none", letterSpacing: 0, marginBottom: 0, cursor: "pointer" }}>
+              Bypass visuel — utiliser la photo telle quelle sans traitement IA
+            </label>
+          </div>
+          <div>
+            <label>Date de publication souhaitée</label>
+            <input type="date" value={form.date} onChange={e => set("date", e.target.value)} style={{ maxWidth: "200px" }} />
+            <div style={{ color: "rgba(255,255,255,0.22)", fontSize: "11px", marginTop: "5px" }}>Laisser vide = traitement immédiat par Make</div>
+          </div>
         </div>
-      </div>
+      </Card>
 
-      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
-        <label>Date de publication souhaitée</label>
-        <input type="date" value={form.date} onChange={function(e) { setForm(function(f) { return Object.assign({}, f, { date: e.target.value }); }); }} style={{ maxWidth: "200px" }} />
-        <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "11px", marginTop: "6px" }}>Laisser vide = traitement immédiat</div>
-      </div>
-
+      {/* Actions */}
       <div style={{ display: "flex", gap: "10px" }}>
-        <button onClick={onClose} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.5)", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif" }}>Annuler</button>
-        <button onClick={handleSubmit} disabled={submitting} style={{ flex: 2, padding: "15px", borderRadius: "11px", border: "none", background: submitting ? "rgba(255,224,0,0.4)" : "#FFE000", color: "#6B2D0F", fontWeight: "700", fontSize: "14px", cursor: submitting ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
-          {submitting ? "⏳ Envoi en cours…" : "🚀 Envoyer à Make"}
-        </button>
+        <Btn variant="secondary" style={{ flex: 1 }} onClick={onClose}>Annuler</Btn>
+        <Btn variant="primary" style={{ flex: 2, padding: "15px" }} onClick={handleSubmit} disabled={!!busy}>
+          {busy ? <><span className="spin">⏳</span> {busy}</> : "🚀 Créer la publication"}
+        </Btn>
       </div>
     </div>
   );
 }
 
-function App() {
-  const [pubs, setPubs]         = React.useState([]);
-  const [loading, setLoading]   = React.useState(true);
-  const [selected, setSelected] = React.useState(null);
-  const [view, setView]         = React.useState("list");
-  const [busy, setBusy]         = React.useState(null);
-  const [toast, setToast]       = React.useState(null);
-  const [tab, setTab]           = React.useState("attente");
-  const [confirm, setConfirm]   = React.useState(false);
+// ── Vue détail d'une publication ─────────────────
+function PubDetail({ pub, onBack, onRefresh, showToast }) {
+  const [rec, setRec]       = React.useState(pub);
+  const [busy, setBusy]     = React.useState("");
+  const [confirm, setConfirm] = React.useState(false);
+  const f = rec.fields;
+  const plats = f["Plateformes cibles"] || [];
 
-  const showToast = function(msg, type) {
-    setToast({ msg: msg, type: type || "ok" });
-    setTimeout(function() { setToast(null); }, 4000);
+  const refresh = async () => {
+    try {
+      const d = await fetch(`${AT_URL}/${rec.id}`, { headers: { Authorization: `Bearer ${AIRTABLE_PAT}` } }).then(r => r.json());
+      setRec(d);
+    } catch(e) { showToast("Impossible de rafraîchir", "err"); }
   };
 
-  const fetchPubs = async function() {
-    // Lecture Airtable désactivée côté front pour éviter les erreurs et protéger la clé API.
-    // Le formulaire "Nouveau" continue d'envoyer les données vers Make.
-    setPubs([]);
-    setLoading(false);
-  };
-
-  React.useEffect(function() { fetchPubs(); }, []);
-
-  const patch = async function(id, fields) {
-    const res = await fetch(MAKE_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "update",
-        recordId: id,
-        fields: fields
-      })
-    });
-    return res.json().catch(function() { return {}; });
-  };
-
-  const handleValider = async function() {
+  const handleValider = async () => {
     setBusy("valider");
     try {
-      await patch(selected.id, { "Statut": STATUT_VALIDE });
+      await atPatch(rec.id, { "Statut": S_VALIDE });
       showToast("✅ Validée — Make va publier sur les réseaux !");
-      setSelected(null); setView("list"); await fetchPubs();
+      onRefresh(); onBack();
     } catch(e) { showToast("Erreur validation", "err"); }
-    setBusy(null);
+    setBusy("");
   };
 
-  const handleRegenerer = async function() {
+  const handleRegen = async () => {
     setBusy("regen");
     try {
-      await patch(selected.id, { "Demande de régénération": true });
-      showToast("🔄 Régénération lancée !");
-      setSelected(null); setView("list"); await fetchPubs();
-    } catch(e) { showToast("Erreur", "err"); }
-    setBusy(null);
+      await atPatch(rec.id, { "Statut": S_NOUVEAU, "Demande de régénération": true });
+      showToast("🔄 Régénération lancée — Make reprend le traitement !");
+      await refresh();
+    } catch(e) { showToast("Erreur régénération", "err"); }
+    setBusy("");
   };
 
-  const handleSupprimer = async function() {
+  const handleSuppr = async () => {
     setBusy("del");
     try {
-      await fetch(MAKE_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "delete",
-          recordId: selected.id
-        })
-      });
+      await atDelete(rec.id);
       showToast("🗑️ Publication supprimée");
-      setSelected(null); setView("list"); setConfirm(false); await fetchPubs();
-    } catch(e) { showToast("Erreur", "err"); }
-    setBusy(null);
+      onRefresh(); onBack();
+    } catch(e) { showToast("Erreur suppression", "err"); }
+    setBusy("");
+    setConfirm(false);
   };
 
-  const attente = pubs.filter(function(p) { return p.fields.Statut === STATUT_ATTENTE; });
-  const valides  = pubs.filter(function(p) { return p.fields.Statut === STATUT_VALIDE; });
-  const f = selected ? selected.fields : {};
-  const selectedPlatforms = f["Plateformes cibles"] || [];
-
-  const goBack = function() { setSelected(null); setView("list"); setConfirm(false); };
+  const photoUrl = f["Photo du patron"] && f["Photo du patron"][0] && f["Photo du patron"][0].url;
+  const hasContent = f[" Hook IA"] || f["Hook IA"] || f["Corps du post IA"];
+  const isValide = f.Statut === S_VALIDE;
+  const isNouveau = f.Statut === S_NOUVEAU;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0F0700" }}>
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse 80% 60% at 20% 0%, rgba(107,45,15,0.4) 0%, transparent 60%)" }} />
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
 
-      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,7,0,0.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(255,224,0,0.1)", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "56px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          {view !== "list" && <button onClick={goBack} style={{ background: "rgba(255,224,0,0.08)", border: "1px solid rgba(255,224,0,0.2)", color: "#FFE000", borderRadius: "8px", padding: "5px 12px", cursor: "pointer", fontSize: "12px", fontFamily: "Georgia, serif" }}>← Retour</button>}
-          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-            <div style={{ width: "32px", height: "32px", background: "#FFE000", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px" }}>🥖</div>
-            <div>
-              <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "13px" }}>l'entredeusienne</div>
-              <div style={{ color: "rgba(255,224,0,0.4)", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" }}>{view === "new" ? "Nouvelle publication" : "Gestion publications"}</div>
-            </div>
-          </div>
+      {/* En-tête */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
+          <Badge>{f["Type de contenu"] || "—"}</Badge>
+          <Badge color={isValide ? "#a8e07a" : isNouveau ? "#FFE000" : "rgba(255,220,100,0.9)"}
+                 bg={isValide ? "rgba(39,80,10,0.25)" : isNouveau ? "rgba(255,224,0,0.15)" : "rgba(200,160,0,0.12)"}>
+            {f.Statut || "—"}
+          </Badge>
+          {f["Date de publication"] && <Badge color="rgba(255,255,255,0.5)" bg="rgba(255,255,255,0.06)">📅 {fmt(f["Date de publication"])}</Badge>}
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {attente.length > 0 && view === "list" && <div style={{ background: "rgba(255,200,0,0.15)", border: "1px solid rgba(255,224,0,0.3)", borderRadius: "20px", padding: "3px 10px", color: "#FFE000", fontSize: "11px", fontWeight: "600" }}>{attente.length} en attente</div>}
-          {view === "list" && <button onClick={function() { setView("new"); }} style={{ background: "#FFE000", border: "none", color: "#6B2D0F", borderRadius: "8px", padding: "6px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", fontFamily: "Georgia, serif" }}>+ Nouveau</button>}
-          {view === "list" && <button onClick={fetchPubs} style={{ background: "transparent", border: "1px solid rgba(255,224,0,0.15)", color: "rgba(255,224,0,0.5)", borderRadius: "8px", padding: "5px 10px", cursor: "pointer", fontSize: "14px" }}>↻</button>}
+        <h1 style={{ color: "#FFE000", fontSize: "21px", fontWeight: "700", lineHeight: "1.25" }}>
+          {f["Sujet du post"] || "Sans titre"}
+        </h1>
+        <div style={{ color: "rgba(255,255,255,0.28)", fontSize: "11px", marginTop: "5px" }}>
+          Créé le {fmt(f["Date de création"])} · Plateformes : {plats.join(", ") || "—"}
         </div>
-      </header>
-
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "900px", margin: "0 auto", padding: "24px 16px" }}>
-
-        {view === "new" && <NewPublicationForm onClose={goBack} onSuccess={function() { goBack(); fetchPubs(); }} showToast={showToast} />}
-
-        {view === "list" && (
-          <>
-            <div style={{ display: "flex", gap: "4px", marginBottom: "20px", borderBottom: "1px solid rgba(255,224,0,0.08)" }}>
-              {[{ id: "attente", label: "À valider", count: attente.length }, { id: "valides", label: "Validés", count: valides.length }].map(function(t) {
-                return (
-                  <button key={t.id} onClick={function() { setTab(t.id); }} style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px 14px", fontFamily: "Georgia, serif", color: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.35)", fontSize: "13px", fontWeight: tab === t.id ? "700" : "400", borderBottom: tab === t.id ? "2px solid #FFE000" : "2px solid transparent", transition: "all 0.2s", display: "flex", alignItems: "center", gap: "6px" }}>
-                    {t.label}
-                    {t.count > 0 && <span style={{ background: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.1)", color: tab === t.id ? "#6B2D0F" : "rgba(255,255,255,0.5)", borderRadius: "10px", padding: "0 6px", fontSize: "10px", fontWeight: "700" }}>{t.count}</span>}
-                  </button>
-                );
-              })}
-            </div>
-
-            {loading ? (
-              <div style={{ textAlign: "center", padding: "60px", color: "rgba(255,224,0,0.4)" }}>
-                <div style={{ fontSize: "32px", marginBottom: "10px" }}>🥐</div>
-                <div style={{ fontSize: "12px" }}>Chargement…</div>
-              </div>
-            ) : (tab === "attente" ? attente : valides).length === 0 ? (
-              <div style={{ textAlign: "center", padding: "50px 20px", background: "rgba(255,224,0,0.02)", border: "1px dashed rgba(255,224,0,0.1)", borderRadius: "14px" }}>
-                <div style={{ fontSize: "36px", marginBottom: "10px" }}>{tab === "attente" ? "✨" : "📭"}</div>
-                <div style={{ color: "#FFE000", fontSize: "15px", fontWeight: "700", marginBottom: "5px" }}>{tab === "attente" ? "Tout est à jour !" : "Aucune publication validée"}</div>
-                <div style={{ color: "rgba(255,224,0,0.4)", fontSize: "12px" }}>{tab === "attente" ? "Aucune publication en attente" : "Les publications validées apparaîtront ici"}</div>
-                {tab === "attente" && <button onClick={function() { setView("new"); }} style={{ marginTop: "16px", background: "#FFE000", border: "none", color: "#6B2D0F", borderRadius: "9px", padding: "10px 20px", cursor: "pointer", fontSize: "13px", fontWeight: "700", fontFamily: "Georgia, serif" }}>+ Créer une publication</button>}
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
-                {(tab === "attente" ? attente : valides).map(function(pub) {
-                  return <PubCard key={pub.id} pub={pub} onOpen={function(p) { setSelected(p); setView("detail"); }} />;
-                })}
-              </div>
-            )}
-          </>
-        )}
-
-        {view === "detail" && selected && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-            <div>
-              <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>{f["Type de contenu"]} · {formatDate(f["Date de création"])}</div>
-              <h1 style={{ color: "#FFE000", fontSize: "20px", fontWeight: "700", lineHeight: "1.2" }}>{f["Sujet du post"] || "Sans titre"}</h1>
-            </div>
-
-            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,224,0,0.08)", borderRadius: "14px", padding: "18px" }}>
-              <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "14px" }}>🖼️ Visuels par plateforme</div>
-              <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                {VISUAL_PLATFORMS.map(function(platform) {
-                  return <VisualCard key={platform.key} platform={platform} url={f[platform.key]} active={selectedPlatforms.includes(platform.label)} />;
-                })}
-              </div>
-              {selectedPlatforms.length > 0 && <div style={{ marginTop: "12px", fontSize: "10px", color: "rgba(255,255,255,0.2)" }}>Plateformes : {selectedPlatforms.join(" · ")}</div>}
-            </div>
-
-            {(f[" Hook IA"] || f["Hook IA"] || f["Corps du post IA"]) && (
-              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "14px", padding: "18px" }}>
-                <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "14px" }}>📝 Contenu généré</div>
-                {(f[" Hook IA"] || f["Hook IA"]) && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Hook</div><div style={{ color: "#FFE000", fontSize: "15px", fontWeight: "700", lineHeight: "1.4" }}>{f[" Hook IA"] || f["Hook IA"]}</div></div>}
-                {f["Corps du post IA"] && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Corps</div><div style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px", lineHeight: "1.8", whiteSpace: "pre-wrap" }}>{f["Corps du post IA"]}</div></div>}
-                {f["CTA IA"] && <div style={{ marginBottom: "12px" }}><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>CTA</div><div style={{ color: "rgba(255,255,255,0.65)", fontSize: "13px" }}>{f["CTA IA"]}</div></div>}
-                {f["Hashtags IA"] && <div><div style={{ color: "rgba(255,224,0,0.3)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "4px" }}>Hashtags</div><div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", lineHeight: "1.8" }}>{f["Hashtags IA"]}</div></div>}
-              </div>
-            )}
-
-            {f.Statut !== STATUT_VALIDE ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                <button onClick={handleValider} disabled={!!busy} style={{ padding: "15px", borderRadius: "11px", border: "none", background: busy === "valider" ? "rgba(255,224,0,0.4)" : "#FFE000", color: "#6B2D0F", fontWeight: "700", fontSize: "14px", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif", transition: "all 0.2s" }}>
-                  {busy === "valider" ? "⏳ Publication en cours…" : "✅ Valider & Publier sur les réseaux"}
-                </button>
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <button onClick={handleRegenerer} disabled={!!busy} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,224,0,0.2)", background: "rgba(255,224,0,0.06)", color: "#FFE000", fontSize: "13px", fontWeight: "600", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
-                    {busy === "regen" ? "⏳ Lancement…" : "🔄 Régénérer le visuel"}
-                  </button>
-                  <button onClick={function() { setConfirm(true); }} disabled={!!busy} style={{ flex: 1, padding: "13px", borderRadius: "11px", border: "1px solid rgba(255,80,80,0.2)", background: "rgba(255,80,80,0.05)", color: "rgba(255,120,120,0.8)", fontSize: "13px", fontWeight: "600", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif" }}>
-                    🗑️ Supprimer
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ padding: "13px", borderRadius: "11px", background: "rgba(39,80,10,0.2)", border: "1px solid rgba(39,80,10,0.4)", color: "#a8e07a", fontSize: "13px", textAlign: "center", fontWeight: "600" }}>
-                ✅ Validée — en attente de publication par Make
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
+      {/* Photo du patron */}
+      {photoUrl && (
+        <Card>
+          <SectionTitle>📷 Photo du patron</SectionTitle>
+          <img src={photoUrl} alt="Photo patron" style={{ maxWidth: "280px", width: "100%", borderRadius: "10px", border: "1px solid rgba(255,224,0,0.2)" }} />
+        </Card>
+      )}
+
+      {/* Visuels générés */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+          <SectionTitle style={{ marginBottom: 0 }}>🖼️ Visuels par plateforme</SectionTitle>
+          <button onClick={refresh} title="Rafraîchir" style={{ background: "transparent", border: "1px solid rgba(255,224,0,0.15)", color: "rgba(255,224,0,0.5)", borderRadius: "7px", padding: "4px 9px", cursor: "pointer", fontSize: "13px" }}>↻</button>
+        </div>
+        {VISUALS.every(v => !f[v.key]) && (
+          <div style={{ color: "rgba(255,255,255,0.25)", fontSize: "12px", marginBottom: "12px", fontStyle: "italic" }}>
+            {isNouveau ? "⏳ Make est en train de générer les visuels…" : "Aucun visuel disponible pour l'instant."}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          {VISUALS.map(v => <VisualCard key={v.key} v={v} url={f[v.key]} active={plats.includes(v.label)} />)}
+        </div>
+        {plats.length > 0 && (
+          <div style={{ marginTop: "12px", fontSize: "10px", color: "rgba(255,255,255,0.18)" }}>
+            Actif : {plats.map(p => P_ICONS[p] + " " + p).join(" · ")}
+          </div>
+        )}
+      </Card>
+
+      {/* Contenu IA */}
+      {hasContent && (
+        <Card>
+          <SectionTitle>📝 Contenu généré par l'IA</SectionTitle>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {(f[" Hook IA"] || f["Hook IA"]) && (
+              <div>
+                <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>Hook</div>
+                <div style={{ color: "#FFE000", fontSize: "16px", fontWeight: "700", lineHeight: "1.4" }}>{f[" Hook IA"] || f["Hook IA"]}</div>
+              </div>
+            )}
+            {f["Corps du post IA"] && (
+              <div>
+                <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>Corps du post</div>
+                <div style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px", lineHeight: "1.85", whiteSpace: "pre-wrap" }}>{f["Corps du post IA"]}</div>
+              </div>
+            )}
+            {f["CTA IA"] && (
+              <div>
+                <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>CTA</div>
+                <div style={{ color: "rgba(255,255,255,0.65)", fontSize: "13px" }}>{f["CTA IA"]}</div>
+              </div>
+            )}
+            {f["Hashtags IA"] && (
+              <div>
+                <div style={{ color: "rgba(255,224,0,0.35)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "5px" }}>Hashtags</div>
+                <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", lineHeight: "1.85" }}>{f["Hashtags IA"]}</div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Détails saisis */}
+      {(f["Détails supplémentaires"] || f["Intention"]) && (
+        <Card>
+          <SectionTitle>📋 Informations saisies</SectionTitle>
+          {f["Intention"] && <div style={{ marginBottom: "8px" }}><span style={{ color: "rgba(255,224,0,0.4)", fontSize: "10px", textTransform: "uppercase" }}>Intention : </span><span style={{ color: "rgba(255,255,255,0.6)", fontSize: "12px" }}>{f["Intention"]}</span></div>}
+          {f["Détails supplémentaires"] && <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{f["Détails supplémentaires"]}</div>}
+        </Card>
+      )}
+
+      {/* ── ZONE D'ACTIONS ── */}
+      {isValide ? (
+        <Card style={{ background: "rgba(39,80,10,0.18)", border: "1px solid rgba(80,180,40,0.25)", textAlign: "center", padding: "20px" }}>
+          <div style={{ fontSize: "24px", marginBottom: "8px" }}>✅</div>
+          <div style={{ color: "#a8e07a", fontWeight: "700", fontSize: "14px", marginBottom: "4px" }}>Publication validée</div>
+          <div style={{ color: "rgba(168,224,122,0.5)", fontSize: "12px" }}>Make va la publier sur les réseaux configurés.</div>
+          <div style={{ marginTop: "14px", display: "flex", gap: "10px", justifyContent: "center" }}>
+            <Btn variant="ghost" style={{ fontSize: "12px", padding: "9px 14px" }} onClick={handleRegen} disabled={!!busy}>
+              {busy === "regen" ? "⏳ Lancement…" : "🔄 Régénérer quand même"}
+            </Btn>
+            <Btn variant="danger" style={{ fontSize: "12px", padding: "9px 14px" }} onClick={() => setConfirm(true)} disabled={!!busy}>🗑️ Supprimer</Btn>
+          </div>
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {/* Valider */}
+          <Btn variant="primary" style={{ width: "100%", padding: "16px", fontSize: "15px" }} onClick={handleValider} disabled={!!busy}>
+            {busy === "valider" ? <><span className="spin">⏳</span> Publication en cours…</> : "✅ Valider & envoyer à Make pour publication"}
+          </Btn>
+          <div style={{ display: "flex", gap: "10px" }}>
+            {/* Régénérer */}
+            <Btn variant="ghost" style={{ flex: 1, padding: "12px" }} onClick={handleRegen} disabled={!!busy}>
+              {busy === "regen" ? <><span className="spin">⏳</span> Lancement…</> : "🔄 Régénérer le contenu"}
+            </Btn>
+            {/* Supprimer */}
+            <Btn variant="danger" style={{ flex: 1, padding: "12px" }} onClick={() => setConfirm(true)} disabled={!!busy}>
+              🗑️ Annuler
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmation suppression */}
       {confirm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "20px" }}>
-          <div style={{ background: "#1a0a00", border: "1px solid rgba(255,80,80,0.3)", borderRadius: "14px", padding: "26px", maxWidth: "340px", width: "100%", textAlign: "center" }}>
-            <div style={{ fontSize: "32px", marginBottom: "10px" }}>⚠️</div>
-            <div style={{ color: "#fff", fontWeight: "700", fontSize: "15px", marginBottom: "7px" }}>Supprimer cette publication ?</div>
-            <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "12px", marginBottom: "22px" }}>Action irréversible — la publication sera définitivement supprimée.</div>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: "20px" }}>
+          <div style={{ background: "#1a0a00", border: "1px solid rgba(255,80,80,0.3)", borderRadius: "16px", padding: "28px", maxWidth: "340px", width: "100%", textAlign: "center" }}>
+            <div style={{ fontSize: "36px", marginBottom: "12px" }}>⚠️</div>
+            <div style={{ color: "#fff", fontWeight: "700", fontSize: "15px", marginBottom: "8px" }}>Supprimer cette publication ?</div>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", marginBottom: "22px", lineHeight: "1.6" }}>
+              Cette action est irréversible.<br/>La fiche sera définitivement supprimée d'Airtable.
+            </div>
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={function() { setConfirm(false); }} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontFamily: "Georgia, serif", fontSize: "13px" }}>Annuler</button>
-              <button onClick={handleSupprimer} disabled={!!busy} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "none", background: "#C0392B", color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif", fontSize: "13px", fontWeight: "700" }}>
-                {busy === "del" ? "Suppression…" : "Supprimer"}
+              <Btn variant="secondary" style={{ flex: 1, padding: "11px" }} onClick={() => setConfirm(false)}>Annuler</Btn>
+              <button onClick={handleSuppr} disabled={!!busy}
+                style={{ flex: 1, padding: "11px", borderRadius: "11px", border: "none", background: "#C0392B", color: "#fff", cursor: busy ? "not-allowed" : "pointer", fontFamily: "Georgia, serif", fontSize: "13px", fontWeight: "700" }}>
+                {busy === "del" ? "Suppression…" : "🗑️ Supprimer"}
               </button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
+// ── App principale ───────────────────────────────
+function App() {
+  const [pubs, setPubs]       = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [view, setView]       = React.useState("list");   // list | new | detail
+  const [selected, setSelected] = React.useState(null);
+  const [tab, setTab]         = React.useState("attente");
+  const [toast, setToast]     = React.useState(null);
+
+  const showToast = (msg, type = "ok") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  const fetchPubs = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const filter = encodeURIComponent(`OR({Statut}="${S_ATTENTE}",{Statut}="${S_VALIDE}")`);
+      const d = await atGet(`?filterByFormula=${filter}&sort[0][field]=Date%20de%20cr%C3%A9ation&sort[0][direction]=desc`);
+      setPubs(d.records || []);
+    } catch(e) { showToast("Erreur chargement : " + e.message, "err"); }
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => { fetchPubs(); }, []);
+
+  const goBack = () => { setView("list"); setSelected(null); };
+
+  const attente = pubs.filter(p => p.fields.Statut === S_ATTENTE);
+  const valides  = pubs.filter(p => p.fields.Statut === S_VALIDE);
+
+  const TABS = [
+    { id: "attente", label: "À valider",  count: attente.length },
+    { id: "valides", label: "Validées",   count: valides.length },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0F0700" }}>
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse 80% 60% at 20% 0%, rgba(107,45,15,0.38) 0%, transparent 60%)" }} />
+
+      {/* ── Header ── */}
+      <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(15,7,0,0.93)", backdropFilter: "blur(18px)", borderBottom: "1px solid rgba(255,224,0,0.09)", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "58px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {view !== "list" && (
+            <button onClick={goBack} style={{ background: "rgba(255,224,0,0.08)", border: "1px solid rgba(255,224,0,0.18)", color: "#FFE000", borderRadius: "8px", padding: "5px 12px", cursor: "pointer", fontSize: "12px" }}>← Retour</button>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div style={{ width: "33px", height: "33px", background: "#FFE000", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" }}>🥖</div>
+            <div>
+              <div style={{ color: "#FFE000", fontWeight: "700", fontSize: "13px" }}>l'entredeusienne</div>
+              <div style={{ color: "rgba(255,224,0,0.38)", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                {view === "new" ? "Nouvelle publication" : view === "detail" ? "Détail publication" : "Gestion publications"}
+              </div>
+            </div>
+          </div>
+        </div>
+        {view === "list" && (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {attente.length > 0 && (
+              <div style={{ background: "rgba(255,200,0,0.13)", border: "1px solid rgba(255,224,0,0.28)", borderRadius: "20px", padding: "3px 10px", color: "#FFE000", fontSize: "11px", fontWeight: "700" }}>
+                {attente.length} en attente
+              </div>
+            )}
+            <Btn variant="primary" style={{ padding: "7px 15px", fontSize: "12px", borderRadius: "8px" }} onClick={() => setView("new")}>+ Nouveau</Btn>
+            <button onClick={fetchPubs} title="Rafraîchir" style={{ background: "transparent", border: "1px solid rgba(255,224,0,0.13)", color: "rgba(255,224,0,0.45)", borderRadius: "8px", padding: "6px 10px", cursor: "pointer", fontSize: "15px" }}>↻</button>
+          </div>
+        )}
+      </header>
+
+      {/* ── Contenu ── */}
+      <div style={{ position: "relative", zIndex: 1, maxWidth: "900px", margin: "0 auto", padding: "22px 16px 60px" }}>
+
+        {/* Vue : nouvelle publication */}
+        {view === "new" && (
+          <NewPubForm onClose={goBack} onSuccess={() => { goBack(); fetchPubs(); }} showToast={showToast} />
+        )}
+
+        {/* Vue : détail */}
+        {view === "detail" && selected && (
+          <PubDetail pub={selected} onBack={goBack} onRefresh={fetchPubs} showToast={showToast} />
+        )}
+
+        {/* Vue : liste */}
+        {view === "list" && (
+          <>
+            {/* Onglets */}
+            <div style={{ display: "flex", gap: "2px", marginBottom: "20px", borderBottom: "1px solid rgba(255,224,0,0.08)" }}>
+              {TABS.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "transparent", border: "none", cursor: "pointer", padding: "10px 16px", color: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.32)", fontSize: "13px", fontWeight: tab === t.id ? "700" : "400", borderBottom: tab === t.id ? "2px solid #FFE000" : "2px solid transparent", transition: "all 0.18s", display: "flex", alignItems: "center", gap: "7px" }}>
+                  {t.label}
+                  {t.count > 0 && (
+                    <span style={{ background: tab === t.id ? "#FFE000" : "rgba(255,255,255,0.08)", color: tab === t.id ? "#6B2D0F" : "rgba(255,255,255,0.4)", borderRadius: "10px", padding: "0 7px", fontSize: "10px", fontWeight: "700" }}>{t.count}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Liste */}
+            {loading ? (
+              <div style={{ textAlign: "center", padding: "70px", color: "rgba(255,224,0,0.4)" }}>
+                <div style={{ fontSize: "34px", marginBottom: "12px" }} className="spin">🥐</div>
+                <div style={{ fontSize: "12px" }}>Chargement…</div>
+              </div>
+            ) : (tab === "attente" ? attente : valides).length === 0 ? (
+              <div style={{ textAlign: "center", padding: "55px 20px", background: "rgba(255,224,0,0.018)", border: "1px dashed rgba(255,224,0,0.09)", borderRadius: "16px" }}>
+                <div style={{ fontSize: "38px", marginBottom: "12px" }}>{tab === "attente" ? "✨" : "📭"}</div>
+                <div style={{ color: "#FFE000", fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>
+                  {tab === "attente" ? "Tout est à jour !" : "Aucune publication validée"}
+                </div>
+                <div style={{ color: "rgba(255,224,0,0.38)", fontSize: "12px", marginBottom: tab === "attente" ? "18px" : 0 }}>
+                  {tab === "attente" ? "Aucune publication en attente de validation." : "Les publications validées apparaîtront ici."}
+                </div>
+                {tab === "attente" && (
+                  <Btn variant="primary" style={{ padding: "11px 22px" }} onClick={() => setView("new")}>+ Créer une publication</Btn>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
+                {(tab === "attente" ? attente : valides).map(pub => (
+                  <PubCard key={pub.id} pub={pub} onOpen={p => { setSelected(p); setView("detail"); }} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Toast ── */}
       {toast && (
-        <div style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", background: toast.type === "err" ? "#8B1A1A" : "#1A4A0A", border: "1px solid " + (toast.type === "err" ? "rgba(255,80,80,0.3)" : "rgba(80,200,80,0.3)"), color: "#fff", padding: "11px 18px", borderRadius: "9px", fontSize: "13px", fontFamily: "Georgia, serif", zIndex: 999, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", whiteSpace: "nowrap" }}>
+        <div style={{ position: "fixed", bottom: "22px", left: "50%", transform: "translateX(-50%)", background: toast.type === "err" ? "#6B1010" : "#0E3A0A", border: "1px solid " + (toast.type === "err" ? "rgba(255,80,80,0.35)" : "rgba(80,200,60,0.35)"), color: "#fff", padding: "12px 20px", borderRadius: "10px", fontSize: "13px", zIndex: 999, boxShadow: "0 8px 36px rgba(0,0,0,0.55)", whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
           {toast.msg}
         </div>
       )}
@@ -494,8 +678,7 @@ function App() {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
