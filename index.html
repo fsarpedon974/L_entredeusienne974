@@ -34,7 +34,7 @@
 // ════════════════════════════════════════════════
 //  CONFIGURATION  — remplis tes vraies valeurs ici
 // ════════════════════════════════════════════════
-const AIRTABLE_PAT = "patvFXrO0qMtEcusu.da19a47e1f56c2cef6ffc01f8186f66f2f429b1828957e40daa3544df58d83bf";
+const AIRTABLE_PAT = "TON_PERSONAL_ACCESS_TOKEN_ICI";
 const BASE_ID      = "apporFmBrAsKQ0a4V";
 const TABLE_ID     = "tbllSY7mYDkHIKjIF";
 // ════════════════════════════════════════════════
@@ -89,49 +89,43 @@ const atDelete = id =>
 
 const PHOTO_WEBHOOK = "https://hook.eu1.make.com/53iby8puwq8nnguc4q4h0lpakyjyfj4j";
 
-// Convertit un fichier en base64
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = e => resolve(e.target.result); // garde le préfixe data:image/...;base64, pour Cloudinary
-    reader.onerror = () => reject(new Error("Lecture fichier échouée"));
-    reader.readAsDataURL(file);
-  });
-}
-
-// Envoie la photo vers Make → Cloudinary → Airtable
+// Envoie la photo en multipart/form-data (binaire pur, plus fiable que base64)
 async function uploadPhoto(recordId, file, onProgress) {
-  if (onProgress) onProgress(10);
+  return new Promise((resolve, reject) => {
+    if (onProgress) onProgress(10);
 
-  // Conversion base64
-  const imageBase64 = await fileToBase64(file);
-  if (onProgress) onProgress(40);
+    const fd = new FormData();
+    fd.append("recordId", recordId);
+    fd.append("file", file, file.name);
 
-  // Envoi au webhook Make
-  const res = await fetch(PHOTO_WEBHOOK, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      recordId,
-      imageBase64,
-      fileName: file.name,
-      fileType: file.type
-    })
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", PHOTO_WEBHOOK);
+    // Pas de Content-Type manuel : le navigateur gère le boundary multipart
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress)
+        onProgress(10 + Math.round(e.loaded / e.total * 85));
+    };
+
+    xhr.onload = () => {
+      if (onProgress) onProgress(100);
+      const body = xhr.responseText;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed.error) {
+          reject(new Error("Make erreur : " + parsed.error));
+          return;
+        }
+      } catch(e) {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body);
+      } else {
+        reject(new Error("Webhook photo échoué (" + xhr.status + ") : " + body));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Erreur réseau lors de l'upload photo"));
+    xhr.send(fd);
   });
-
-  if (onProgress) onProgress(90);
-  const body = await res.text();
-  if (!res.ok) throw new Error("Webhook photo échoué (" + res.status + ") : " + body);
-  // Make renvoie parfois {"error":"..."} même avec un status 200
-  try {
-    const parsed = JSON.parse(body);
-    if (parsed.error) throw new Error("Make : " + parsed.error + " — vérifie que le scénario est bien ON et que Cloudinary est configuré");
-  } catch(e) {
-    if (e.message.startsWith("Make :")) throw e;
-    // Pas du JSON = réponse normale, on continue
-  }
-  if (onProgress) onProgress(100);
-  return body;
 }
 
 // ── Composants UI ────────────────────────────────
