@@ -38,6 +38,9 @@ const AIRTABLE_PAT = "patvFXrO0qMtEcusu.da19a47e1f56c2cef6ffc01f8186f66f2f429b18
 const BASE_ID      = "apporFmBrAsKQ0a4V";
 const TABLE_ID     = "tbllSY7mYDkHIKjIF";
 // ════════════════════════════════════════════════
+// ⚠️  Le PAT doit avoir les scopes :
+//     data.records:read  data.records:write  schema.bases:read
+// ════════════════════════════════════════════════
 
 const AT_URL  = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`;
 const AT_HEAD = { "Authorization": `Bearer ${AIRTABLE_PAT}`, "Content-Type": "application/json" };
@@ -84,28 +87,51 @@ const atCreate = fields =>
 const atDelete = id =>
   fetch(`${AT_URL}/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${AIRTABLE_PAT}` } });
 
-async function getPhotoFieldId() {
-  try {
-    const d = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`, {
-      headers: { Authorization: `Bearer ${AIRTABLE_PAT}` }
-    }).then(r => r.json());
-    const tbl = d.tables && d.tables.find(t => t.id === TABLE_ID);
-    const fld = tbl && tbl.fields.find(f => f.name === "Photo du patron");
-    return fld ? fld.id : null;
-  } catch { return null; }
+const PHOTO_WEBHOOK = "https://hook.eu1.make.com/53iby8puwq8nnguc4q4h0lpakyjyfj4j";
+
+// Convertit un fichier en base64
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result.split(",")[1]); // strip le préfixe data:...
+    reader.onerror = () => reject(new Error("Lecture fichier échouée"));
+    reader.readAsDataURL(file);
+  });
 }
 
-async function uploadPhoto(recordId, fieldId, file) {
-  const fd = new FormData();
-  fd.append("file", file, file.name);
-  fd.append("filename", file.name);
-  fd.append("contentType", file.type);
-  const r = await fetch(
-    `https://content.airtable.com/v0/${BASE_ID}/${recordId}/uploadAttachment/${fieldId}`,
-    { method: "POST", headers: { Authorization: `Bearer ${AIRTABLE_PAT}` }, body: fd }
-  );
-  if (!r.ok) throw new Error("Upload photo : " + await r.text());
-  return r.json();
+// Envoie la photo vers Make → Cloudinary → Airtable
+async function uploadPhoto(recordId, file, onProgress) {
+  if (onProgress) onProgress(10);
+
+  // Conversion base64
+  const imageBase64 = await fileToBase64(file);
+  if (onProgress) onProgress(40);
+
+  // Envoi au webhook Make
+  const res = await fetch(PHOTO_WEBHOOK, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recordId,
+      imageBase64,
+      fileName: file.name,
+      fileType: file.type
+    })
+  });
+
+  if (onProgress) onProgress(90);
+  const body = await res.text();
+  if (!res.ok) throw new Error("Webhook photo échoué (" + res.status + ") : " + body);
+  // Make renvoie parfois {"error":"..."} même avec un status 200
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed.error) throw new Error("Make : " + parsed.error + " — vérifie que le scénario est bien ON et que Cloudinary est configuré");
+  } catch(e) {
+    if (e.message.startsWith("Make :")) throw e;
+    // Pas du JSON = réponse normale, on continue
+  }
+  if (onProgress) onProgress(100);
+  return body;
 }
 
 // ── Composants UI ────────────────────────────────
@@ -131,6 +157,61 @@ function Card({ children, style: sx = {} }) {
 
 function SectionTitle({ children }) {
   return <div style={{ color: "rgba(255,224,0,0.45)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "12px" }}>{children}</div>;
+}
+
+// ── Barre de progression ─────────────────────────
+const STEPS = [
+  { key: "validate",  label: "Validation",              icon: "✅" },
+  { key: "create",    label: "Création de la fiche",    icon: "📋" },
+  { key: "photo",     label: "Upload de la photo",      icon: "📷" },
+  { key: "done",      label: "Envoyé à Make",           icon: "🚀" },
+];
+
+function ProgressBar({ step, photoProgress }) {
+  const idx = STEPS.findIndex(s => s.key === step);
+  const pct = step === "photo" && photoProgress != null
+    ? 50 + photoProgress * 0.25
+    : idx < 0 ? 0 : [0, 25, 50, 100][Math.min(idx, 3)];
+
+  return (
+    <div style={{ background: "rgba(255,224,0,0.06)", border: "1px solid rgba(255,224,0,0.15)", borderRadius: "14px", padding: "18px", marginBottom: "4px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
+        {STEPS.map((s, i) => {
+          const done    = i < idx || step === "done";
+          const current = s.key === step;
+          return (
+            <div key={s.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", flex: 1 }}>
+              <div style={{
+                width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px",
+                background: done ? "#FFE000" : current ? "rgba(255,224,0,0.2)" : "rgba(255,255,255,0.05)",
+                border: current ? "2px solid #FFE000" : done ? "none" : "1px solid rgba(255,255,255,0.1)",
+                transition: "all 0.4s"
+              }}>
+                {done ? "✓" : s.icon}
+              </div>
+              <div style={{ fontSize: "9px", textAlign: "center", color: done || current ? "#FFE000" : "rgba(255,255,255,0.25)", fontWeight: current ? "700" : "400", letterSpacing: "0.04em", textTransform: "uppercase", lineHeight: "1.3" }}>
+                {s.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Barre de progression */}
+      <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "4px", height: "5px", overflow: "hidden" }}>
+        <div style={{ height: "100%", borderRadius: "4px", background: "linear-gradient(90deg, #FFE000, #FF9900)", width: pct + "%", transition: "width 0.5s ease" }} />
+      </div>
+      {step === "photo" && photoProgress != null && (
+        <div style={{ textAlign: "center", color: "rgba(255,224,0,0.6)", fontSize: "11px", marginTop: "7px" }}>
+          Upload photo : {photoProgress}%
+        </div>
+      )}
+      {step === "done" && (
+        <div style={{ textAlign: "center", color: "#a8e07a", fontSize: "12px", marginTop: "8px", fontWeight: "600" }}>
+          ✅ Fiche créée — Make génère les visuels en arrière-plan
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Carte visuel plateforme ──────────────────────
@@ -190,8 +271,10 @@ function NewPubForm({ onClose, onSuccess, showToast }) {
     sujet: "", type: "", details: "", intention: "",
     plateformes: [], date: "", bypass: false, photo: null
   });
-  const [preview, setPreview] = React.useState(null);
-  const [busy, setBusy]       = React.useState("");
+  const [preview, setPreview]         = React.useState(null);
+  const [busy, setBusy]               = React.useState(false);
+  const [step, setStep]               = React.useState("");
+  const [photoProgress, setPhotoProgress] = React.useState(null);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -209,7 +292,7 @@ function NewPubForm({ onClose, onSuccess, showToast }) {
     if (!form.sujet.trim()) { showToast("Le sujet est obligatoire", "err"); return; }
     if (!form.type)          { showToast("Sélectionne un type", "err"); return; }
     if (!form.plateformes.length) { showToast("Sélectionne au moins une plateforme", "err"); return; }
-    setBusy("Création de la fiche…");
+    setBusy(true); setStep("create"); setPhotoProgress(null);
     try {
       const fields = {
         "Sujet du post":      form.sujet.trim(),
@@ -227,18 +310,18 @@ function NewPubForm({ onClose, onSuccess, showToast }) {
       if (record.error) throw new Error(record.error.message || "Erreur Airtable");
 
       if (form.photo) {
-        setBusy("Upload de la photo…");
-        const fid = await getPhotoFieldId();
-        if (fid) { await uploadPhoto(record.id, fid, form.photo); }
-        else      { showToast("⚠️ Photo non uploadée — champ introuvable", "err"); }
+        setStep("photo"); setPhotoProgress(0);
+        await uploadPhoto(record.id, form.photo, pct => setPhotoProgress(pct));
       }
 
-      showToast("✅ Publication créée et envoyée à Make !");
+      setStep("done");
+      await new Promise(r => setTimeout(r, 1800));
+      showToast("✅ Publication créée — Make génère les visuels !");
       onSuccess();
     } catch(e) {
       showToast("Erreur : " + e.message, "err");
+      setBusy(false); setStep("");
     }
-    setBusy("");
   };
 
   return (
@@ -284,15 +367,39 @@ function NewPubForm({ onClose, onSuccess, showToast }) {
       {/* Photo */}
       <Card>
         <SectionTitle>📷 Photo du patron</SectionTitle>
-        <input type="file" accept="image/*" onChange={handlePhoto} />
-        {preview && (
-          <div style={{ marginTop: "12px", display: "flex", alignItems: "flex-start", gap: "12px" }}>
-            <img src={preview} alt="" style={{ width: "90px", height: "90px", objectFit: "cover", borderRadius: "9px", border: "1.5px solid rgba(255,224,0,0.3)", flexShrink: 0 }} />
-            <div style={{ paddingTop: "4px" }}>
-              <div style={{ color: "#FFE000", fontSize: "12px", fontWeight: "600", marginBottom: "3px" }}>{form.photo && form.photo.name}</div>
-              <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginBottom: "8px" }}>{form.photo && (form.photo.size / 1024).toFixed(0)} Ko</div>
-              <Btn variant="danger" style={{ padding: "4px 10px", fontSize: "11px", borderRadius: "7px" }}
-                onClick={() => { set("photo", null); setPreview(null); }}>Supprimer</Btn>
+        {/* Inputs cachés */}
+        <input id="photoGallery" type="file" accept="image/*"
+          style={{ display: "none" }} onChange={handlePhoto} />
+        <input id="photoCamera"  type="file" accept="image/*" capture="environment"
+          style={{ display: "none" }} onChange={handlePhoto} />
+
+        {!preview ? (
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={() => document.getElementById("photoCamera").click()}
+              style={{ flex: 1, padding: "14px 10px", borderRadius: "11px", border: "1.5px dashed rgba(255,224,0,0.3)", background: "rgba(255,224,0,0.05)", color: "#FFE000", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+              <span style={{ fontSize: "24px" }}>📸</span>
+              <span>Prendre une photo</span>
+            </button>
+            <button onClick={() => document.getElementById("photoGallery").click()}
+              style={{ flex: 1, padding: "14px 10px", borderRadius: "11px", border: "1.5px dashed rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.45)", fontSize: "13px", cursor: "pointer", fontFamily: "Georgia, serif", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+              <span style={{ fontSize: "24px" }}>🖼️</span>
+              <span>Choisir depuis la galerie</span>
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
+            <img src={preview} alt="" style={{ width: "100px", height: "100px", objectFit: "cover", borderRadius: "10px", border: "2px solid rgba(255,224,0,0.4)", flexShrink: 0 }} />
+            <div style={{ paddingTop: "4px", flex: 1 }}>
+              <div style={{ color: "#FFE000", fontSize: "12px", fontWeight: "600", marginBottom: "3px", wordBreak: "break-all" }}>{form.photo && form.photo.name}</div>
+              <div style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginBottom: "10px" }}>{form.photo && (form.photo.size / 1024).toFixed(0)} Ko</div>
+              <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                <button onClick={() => document.getElementById("photoCamera").click()}
+                  style={{ padding: "5px 10px", borderRadius: "7px", border: "1px solid rgba(255,224,0,0.2)", background: "transparent", color: "rgba(255,224,0,0.7)", fontSize: "11px", cursor: "pointer", fontFamily: "Georgia, serif" }}>📸 Reprendre</button>
+                <button onClick={() => document.getElementById("photoGallery").click()}
+                  style={{ padding: "5px 10px", borderRadius: "7px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.4)", fontSize: "11px", cursor: "pointer", fontFamily: "Georgia, serif" }}>🖼️ Changer</button>
+                <button onClick={() => { set("photo", null); setPreview(null); }}
+                  style={{ padding: "5px 10px", borderRadius: "7px", border: "1px solid rgba(255,80,80,0.25)", background: "transparent", color: "rgba(255,120,120,0.8)", fontSize: "11px", cursor: "pointer", fontFamily: "Georgia, serif" }}>✕ Supprimer</button>
+              </div>
             </div>
           </div>
         )}
@@ -332,13 +439,18 @@ function NewPubForm({ onClose, onSuccess, showToast }) {
         </div>
       </Card>
 
+      {/* Barre de progression */}
+      {busy && <ProgressBar step={step} photoProgress={photoProgress} />}
+
       {/* Actions */}
-      <div style={{ display: "flex", gap: "10px" }}>
-        <Btn variant="secondary" style={{ flex: 1 }} onClick={onClose}>Annuler</Btn>
-        <Btn variant="primary" style={{ flex: 2, padding: "15px" }} onClick={handleSubmit} disabled={!!busy}>
-          {busy ? <><span className="spin">⏳</span> {busy}</> : "🚀 Créer la publication"}
-        </Btn>
-      </div>
+      {!busy && (
+        <div style={{ display: "flex", gap: "10px" }}>
+          <Btn variant="secondary" style={{ flex: 1 }} onClick={onClose}>Annuler</Btn>
+          <Btn variant="primary" style={{ flex: 2, padding: "15px" }} onClick={handleSubmit}>
+            🚀 Créer la publication
+          </Btn>
+        </div>
+      )}
     </div>
   );
 }
@@ -371,8 +483,10 @@ function PubDetail({ pub, onBack, onRefresh, showToast }) {
   const handleRegen = async () => {
     setBusy("regen");
     try {
-      await atPatch(rec.id, { "Statut": S_NOUVEAU, "Demande de régénération": true });
-      showToast("🔄 Régénération lancée — Make reprend le traitement !");
+      // On garde toutes les données (textes IA, hook, CTA…)
+      // et on demande uniquement une régénération des visuels
+      await atPatch(rec.id, { "Demande de régénération": true });
+      showToast("🔄 Régénération des visuels lancée — les textes sont conservés !");
       await refresh();
     } catch(e) { showToast("Erreur régénération", "err"); }
     setBusy("");
