@@ -34,7 +34,7 @@
 // ════════════════════════════════════════════════
 //  CONFIGURATION  — remplis tes vraies valeurs ici
 // ════════════════════════════════════════════════
-const AIRTABLE_PAT = "patvFXrO0qMtEcusu.da19a47e1f56c2cef6ffc01f8186f66f2f429b1828957e40daa3544df58d83bf";
+const AIRTABLE_PAT = "TON_PERSONAL_ACCESS_TOKEN_ICI";
 const BASE_ID      = "apporFmBrAsKQ0a4V";
 const TABLE_ID     = "tbllSY7mYDkHIKjIF";
 // ════════════════════════════════════════════════
@@ -89,14 +89,42 @@ const atDelete = id =>
 
 const PHOTO_WEBHOOK = "https://hook.eu1.make.com/53iby8puwq8nnguc4q4h0lpakyjyfj4j";
 
+// Compresse une image avant envoi (max 1200px, qualité 0.8)
+async function compressImage(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else       { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), file.type || "image/jpeg", 0.82);
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+}
+
 // Envoie la photo en multipart/form-data (binaire pur, plus fiable que base64)
 async function uploadPhoto(recordId, file, onProgress) {
+  // Compression avant envoi pour éviter les erreurs réseau sur les grosses photos
+  if (onProgress) onProgress(5);
+  const compressed = await compressImage(file);
+  const finalFile = new File([compressed], file.name, { type: compressed.type || file.type });
+
   return new Promise((resolve, reject) => {
     if (onProgress) onProgress(10);
 
     const fd = new FormData();
     fd.append("recordId", recordId);
-    fd.append("file", file, file.name);
+    fd.append("file", finalFile, finalFile.name);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", PHOTO_WEBHOOK);
@@ -477,12 +505,32 @@ function PubDetail({ pub, onBack, onRefresh, showToast }) {
   const handleRegen = async () => {
     setBusy("regen");
     try {
-      // On garde toutes les données (textes IA, hook, CTA…)
-      // et on demande uniquement une régénération des visuels
       await atPatch(rec.id, { "Demande de régénération": true });
       showToast("🔄 Régénération des visuels lancée — les textes sont conservés !");
       await refresh();
     } catch(e) { showToast("Erreur régénération", "err"); }
+    setBusy("");
+  };
+
+  const handleRegenComplete = async () => {
+    setBusy("regenFull");
+    try {
+      await atPatch(rec.id, {
+        "Statut": S_NOUVEAU,
+        " Hook IA": null,
+        "Hook IA": null,
+        "Corps du post IA": null,
+        "CTA IA": null,
+        "Hashtags IA": null,
+        "Visuel Facebook (URL)": null,
+        "Visuel Instagram (URL)": null,
+        "Visuel TikTok (URL)": null,
+        "Visuel TV (URL)": null,
+        "Demande de régénération": false,
+      });
+      showToast("🔁 Régénération complète lancée — Make reprend depuis le début !");
+      await refresh();
+    } catch(e) { showToast("Erreur régénération complète", "err"); }
     setBusy("");
   };
 
@@ -614,9 +662,13 @@ function PubDetail({ pub, onBack, onRefresh, showToast }) {
             {busy === "valider" ? <><span className="spin">⏳</span> Publication en cours…</> : "✅ Valider & envoyer à Make pour publication"}
           </Btn>
           <div style={{ display: "flex", gap: "10px" }}>
-            {/* Régénérer */}
+            {/* Régénérer visuels */}
             <Btn variant="ghost" style={{ flex: 1, padding: "12px" }} onClick={handleRegen} disabled={!!busy}>
-              {busy === "regen" ? <><span className="spin">⏳</span> Lancement…</> : "🔄 Régénérer le contenu"}
+              {busy === "regen" ? <><span className="spin">⏳</span> Lancement…</> : "🔄 Visuels"}
+            </Btn>
+            {/* Régénération complète */}
+            <Btn variant="ghost" style={{ flex: 1, padding: "12px", borderColor: "rgba(255,200,0,0.35)", color: "rgba(255,200,0,0.85)" }} onClick={handleRegenComplete} disabled={!!busy}>
+              {busy === "regenFull" ? <><span className="spin">⏳</span> Lancement…</> : "🔁 Tout régénérer"}
             </Btn>
             {/* Supprimer */}
             <Btn variant="danger" style={{ flex: 1, padding: "12px" }} onClick={() => setConfirm(true)} disabled={!!busy}>
